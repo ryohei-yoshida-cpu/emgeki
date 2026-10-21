@@ -9,7 +9,6 @@ const MM = 96 / 25.4; // 1mm の CSS px
 // メモのスペースの大きさ（行の長さに対する割合）
 export const MEMO_FRACTION = { none: 0, small: 1 / 6, medium: 1 / 5, large: 1 / 4 };
 const BAND_GAP_MM = 5;   // メモ・指示のスペースと本文のすき間
-const RULE_MM = 8;       // 罫線の間隔
 const NOTE_BAND = 0.2;   // 演技の指示スペース：行の長さの約1/5
 
 // 本文の枠と、メモのスペース（行の頭側）・指示のスペース（行の終わり側）の枠。どれも用紙の端からの距離 mm。
@@ -90,25 +89,15 @@ export function renderPages(script, host) {
     page.style.setProperty('--lh', String(st.lineHeight));
     const box = withMemo ? layout.body : { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
     const inset = (b) => ({ top: `${b.top}mm`, bottom: `${b.bottom}mm`, left: `${b.left}mm`, right: `${b.right}mm` });
-    // 罫線は書く向きに合わせる（縦書きなら縦線、横書きなら横線）。
-    // 背景画像は印刷で省かれることがあるので、線は要素の枠線で描く
-    const rules = (area) => {
-      if (!st.memoRuled) return [];
-      const [pw, ph] = PAGE_MM[st.orientation] || PAGE_MM.portrait;
-      const extent = vertical ? pw - area.left - area.right : ph - area.top - area.bottom;
-      const lines = [];
-      for (let d = RULE_MM; d < extent - 1; d += RULE_MM) {
-        lines.push(h('div', { class: vertical ? 'rule-v' : 'rule-h', style: vertical ? { right: `${d}mm` } : { top: `${d}mm` } }));
-      }
-      return lines;
-    };
+    // 本文との境に1本線を引く（設定でなしにもできる）
+    const lined = st.memoRuled ? ' lined' : '';
     if (withMemo && layout.memo) {
-      page.append(h('div', { class: `memo-area ${vertical ? 'memo-top' : 'memo-left'}`, style: inset(layout.memo) },
-        rules(layout.memo), h('span', { class: 'memo-label' }, 'メモ')));
+      page.append(h('div', { class: `memo-area ${vertical ? 'memo-top' : 'memo-left'}${lined}`, style: inset(layout.memo) },
+        h('span', { class: 'memo-label' }, 'メモ')));
     }
     if (withMemo && layout.band) {
-      page.append(h('div', { class: `note-band ${vertical ? 'band-bottom' : 'band-right'}`, style: inset(layout.band) },
-        rules(layout.band), h('span', { class: 'memo-label' }, '演技の指示')));
+      page.append(h('div', { class: `note-band ${vertical ? 'band-bottom' : 'band-right'}${lined}`, style: inset(layout.band) },
+        h('span', { class: 'memo-label' }, '演技の指示')));
     }
     const body = h('div', { class: 'page-body', style: inset(box) });
     page.append(body);

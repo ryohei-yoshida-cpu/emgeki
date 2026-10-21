@@ -20,7 +20,7 @@ export const DEFAULT_SETTINGS = {
   pageNumbers: true,
   autoReading: true,
   memoArea: 'none',            // メモのスペース（行の頭側）：none | small | medium | large
-  memoRuled: true,             // メモ・指示のスペースに罫線
+  memoRuled: true,             // メモ・指示のスペースと本文の境の線
   actingNotes: false,          // 印刷に「演技の指示」スペースを付ける
   editorWritingMode: 'horizontal', // 書く画面：horizontal | vertical
 };
