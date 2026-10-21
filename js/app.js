@@ -5,6 +5,9 @@ import { getReading, isTokenizerRequested, loadTokenizer } from './furigana.js';
 import { runCheck, applyFix, applyAll } from './proofread.js';
 import { FONTS, fontCss, ensureFont } from './fonts.js';
 import { scriptToText, scriptToDocx } from './export.js';
+import { savePdf, getPdf, deletePdf, listPdfs } from './pdfstore.js';
+import { openPdf, extractPages } from './pdfjs.js';
+import { parsePages } from './pdfparse.js';
 import { $, $$, h, uid, hasKanji, chapterLabel, countOccurrences, formatDate, safeStorage } from './util.js';
 
 let S = null;            // 編集中の脚本
@@ -908,6 +911,7 @@ function openScriptList() {
   const actions = h('div', { class: 'row-btns wrap' },
     h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); createScript(); } }, '＋ 新しい脚本'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); duplicateScript(); } }, '複製'),
+    h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFから読み込む'),
     h('button', { class: 'btn danger', type: 'button', onclick: () => { closeSheet(); removeScript(); } }, 'この脚本を削除'));
   const exportRow = h('div', { class: 'row-btns wrap' },
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportText(); } }, 'テキスト（.txt）'),
@@ -959,6 +963,272 @@ function removeScript() {
   else createScript();
   toast('削除しました');
 }
+
+// ============ PDF の読み込み ============
+
+let pdfImportMode = 'view';
+
+function openPdfImportChooser() {
+  const card = (mode, title, desc, warn) => h('button', {
+    class: 'mode-card', type: 'button',
+    onclick: () => { pdfImportMode = mode; closeSheet(); $('#pdf-file').click(); },
+  }, h('b', {}, title), h('span', {}, desc), warn ? h('span', { class: 'warn' }, warn) : null);
+  openSheet('過去の脚本をPDFから読み込む',
+    card('view', 'PDFモード（そのまま読む）',
+      '元のPDFをこの端末に保存します。右上の「⋯」からいつでも開いて読めます。内容の編集はできません。'),
+    card('edit', 'PDF＋修正モード（取り込んで編集する）',
+      'PDFの文字を読み取り、セリフ・ト書き・章・人物を新しい脚本として取り込みます。元のPDFも保存され、右上の「⋯」から見比べられます。',
+      '⚠ レイアウトが崩れたり、名前やセリフが正しく取り込めない場合があります。取り込み後に内容を確認してください。'));
+}
+
+async function storePdf(rec) {
+  try {
+    await savePdf(rec);
+    return true;
+  } catch {
+    toastError('PDFを保存できませんでした（端末の空き容量を確認してください）');
+    return false;
+  }
+}
+
+async function onPdfChosen(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { toastError('PDFファイルを選んでください'); return; }
+  const mode = pdfImportMode;
+  const bar = h('div');
+  const msg = h('p', { class: 'note' }, 'PDFを開いています…');
+  openSheet(mode === 'edit' ? 'PDFを取り込んでいます' : 'PDFを読み込んでいます', msg, h('div', { class: 'progress' }, bar));
+
+  let data, pdf;
+  try {
+    data = await file.arrayBuffer();
+    pdf = await openPdf(data);
+  } catch (err) {
+    closeSheet();
+    toastError(err?.name === 'PasswordException' ? 'パスワード付きのPDFは読み込めません' : 'PDFを開けませんでした（ファイルが壊れていないか確認してください）');
+    return;
+  }
+  const name = file.name.replace(/\.pdf$/i, '');
+  const rec = { id: uid(), name, pages: pdf.numPages, size: data.byteLength, addedAt: Date.now(), scriptId: null, data };
+
+  if (mode === 'view') {
+    pdf.destroy();
+    closeSheet();
+    if (!(await storePdf(rec))) return;
+    toast('PDFを保存しました。右上の「⋯」からいつでも読めます');
+    openPdfViewer(rec.id);
+    return;
+  }
+
+  let extracted;
+  try {
+    extracted = await extractPages(pdf, (p, n) => {
+      bar.style.width = `${Math.round((p / n) * 100)}%`;
+      msg.textContent = `文字を読み取っています…（${p} / ${n}ページ）`;
+    });
+  } catch {
+    closeSheet();
+    toastError('PDFの文字を読み取れませんでした');
+    return;
+  } finally {
+    pdf.destroy();
+  }
+
+  if (extracted.chars < 10) {
+    openSheet('文字を読み取れませんでした',
+      h('p', {}, 'このPDFには文字の情報がありません（紙をスキャンした画像のPDFなど）。そのため脚本としては取り込めません。'),
+      h('div', { class: 'row-btns wrap' },
+        h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+          closeSheet();
+          if (await storePdf(rec)) openPdfViewer(rec.id);
+        } }, 'PDFモードで保存して読む'),
+        h('button', { class: 'btn', type: 'button', onclick: closeSheet }, 'やめる')));
+    return;
+  }
+
+  const parsed = parsePages(extracted.pages);
+  const s = scriptFromPdf(parsed, extracted, name);
+  s.sourcePdfId = rec.id;
+  rec.scriptId = s.id;
+  const saved = await storePdf(rec);
+  if (!saved) s.sourcePdfId = null;
+
+  flush();
+  S = s;
+  try { store.saveScript(S); } catch { toastError('脚本を保存できませんでした（端末の空き容量を確認してください）'); }
+  undoStack = [];
+  lastIssues = [];
+  currentBlockId = null;
+  $('#btn-undo').disabled = true;
+  refreshAll();
+  setView('editor');
+  S.characters.forEach((c) => { if (!c.reading) autoReading(c); });
+  showPdfImportResult(parsed.report, saved ? rec : null);
+}
+
+function scriptFromPdf(parsed, extracted, fallbackTitle) {
+  const s = store.newScript(parsed.title || fallbackTitle);
+  s.author = parsed.author || '';
+  s.settings.writingMode = parsed.report.vertical ? 'vertical' : 'horizontal';
+  s.settings.orientation = extracted.landscape ? 'landscape' : 'portrait';
+  if (parsed.report.notes) s.settings.actingNotes = true;
+  const idByName = new Map();
+  s.characters = parsed.characters.map((c, i) => {
+    const id = uid();
+    idByName.set(c.name, id);
+    return { id, name: c.name, reading: c.reading || '', readingAuto: !c.reading, actor: c.actor || '', color: store.CHAR_COLORS[i % store.CHAR_COLORS.length] };
+  });
+  s.blocks = parsed.blocks.map((b) => (b.type === 'dialogue'
+    ? { id: uid(), type: 'dialogue', charId: idByName.get(b.name) || null, text: b.text, note: b.note || '' }
+    : { id: uid(), type: b.type, text: b.text }));
+  return s;
+}
+
+function showPdfImportResult(r, rec) {
+  const names = S.characters.map((c) => c.name).join('、');
+  openSheet('PDFから取り込みました',
+    h('div', { class: 'warn-box' },
+      '⚠ PDFからの取り込みは完全ではありません。レイアウトが崩れたり、名前・セリフ・ト書きの区別が正しくない箇所があるかもしれません。',
+      rec ? '元のPDFと見比べて確認してください。' : '内容を確認してください。'),
+    r.dialogues === 0 ? h('p', { class: 'warn-text' }, 'セリフの形（「名前「セリフ」」「名前　セリフ」など）を見つけられなかったため、すべてト書きとして取り込んでいます。') : null,
+    h('ul', { class: 'result-list' },
+      h('li', {}, `${r.pages}ページを読み取りました（${r.vertical ? '縦書き' : '横書き'}として判定）`),
+      h('li', {}, `人物：${S.characters.length}人${names ? `（${names}）` : ''}`),
+      h('li', {}, `セリフ：${r.dialogues}・ト書き：${r.directions}・章：${r.chapters}・シチュエーション：${r.situations}`),
+      r.notes ? h('li', {}, `演技の指示：${r.notes}（設定の「演技の指示」をオンにしました）`) : null),
+    h('div', { class: 'row-btns wrap' },
+      rec ? h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfViewer(rec.id); } }, '元のPDFと見比べる') : null,
+      h('button', { class: 'btn primary', type: 'button', onclick: closeSheet }, '確認する')));
+}
+
+async function openPdfLibrary() {
+  let list;
+  try {
+    list = await listPdfs();
+  } catch {
+    toastError('保存したPDFを読み込めませんでした');
+    return;
+  }
+  const mine = list.filter((p) => p.id === S.sourcePdfId || p.scriptId === S.id);
+  const others = list.filter((p) => !mine.includes(p));
+  const ul = (items) => h('ul', { class: 'menu-list' }, items.map((p) => h('li', {}, h('button', {
+    type: 'button',
+    onclick: () => { closeSheet(); openPdfViewer(p.id); },
+  }, p.name, h('span', { class: 'sub' }, `${p.pages}ページ・${formatDate(p.addedAt)}`)))));
+  openSheet('取り込んだPDF',
+    mine.length ? h('p', { class: 'sheet-label' }, 'この脚本の元のPDF') : null,
+    mine.length ? ul(mine) : null,
+    others.length ? h('p', { class: 'sheet-label' }, mine.length ? 'そのほかのPDF' : '保存したPDF') : null,
+    others.length ? ul(others) : null,
+    list.length ? null : h('p', { class: 'note' }, 'まだPDFはありません。下のボタンから過去の脚本のPDFを読み込めます。'),
+    h('div', { class: 'row-btns' }, h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFを読み込む')));
+}
+
+// ---- PDF ビューア ----
+
+const viewer = { pdf: null, id: null, zoom: 1, observer: null, token: 0 };
+
+async function openPdfViewer(id) {
+  const v = $('#pdf-viewer');
+  if (v.hidden) history.pushState({ pdfViewer: true }, '');
+  v.hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#pdf-pages').innerHTML = '';
+  $('#pdf-viewer-title').textContent = '読み込み中…';
+  const token = ++viewer.token;
+  let rec = null;
+  try { rec = await getPdf(id); } catch { /* 下で扱う */ }
+  if (token !== viewer.token) return;
+  if (!rec) { closePdfViewer(); toastError('PDFが見つかりませんでした'); return; }
+  $('#pdf-viewer-title').textContent = rec.name;
+  viewer.id = id;
+  viewer.zoom = 1;
+  try {
+    viewer.pdf?.destroy();
+    viewer.pdf = await openPdf(rec.data);
+  } catch {
+    closePdfViewer();
+    toastError('PDFを開けませんでした');
+    return;
+  }
+  if (token !== viewer.token) return;
+  layoutPdfPages();
+}
+
+async function layoutPdfPages() {
+  const pdf = viewer.pdf;
+  const box = $('#pdf-pages');
+  const scrollRatio = box.scrollHeight ? box.scrollTop / box.scrollHeight : 0;
+  box.innerHTML = '';
+  viewer.observer?.disconnect();
+  const width = Math.min(box.clientWidth - 16, 900) * viewer.zoom;
+  viewer.observer = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      viewer.observer.unobserve(en.target);
+      renderPdfPage(en.target, pdf);
+    }
+  }, { root: box, rootMargin: '600px 0px' });
+  const vp1 = (await pdf.getPage(1)).getViewport({ scale: 1 });
+  if (pdf !== viewer.pdf) return;
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const page = h('div', { class: 'pdf-page', style: { width: `${width}px`, height: `${(width * vp1.height) / vp1.width}px` }, dataset: { page: String(n) } });
+    box.append(page, h('div', { class: 'pdf-label' }, `${n} / ${pdf.numPages}`));
+    viewer.observer.observe(page);
+  }
+  box.scrollTop = scrollRatio * box.scrollHeight;
+}
+
+async function renderPdfPage(el, pdf) {
+  try {
+    const page = await pdf.getPage(Number(el.dataset.page));
+    const cssW = parseFloat(el.style.width);
+    const vp0 = page.getViewport({ scale: 1 });
+    el.style.height = `${(cssW * vp0.height) / vp0.width}px`;
+    let scale = (cssW / vp0.width) * Math.min(window.devicePixelRatio || 1, 2.5);
+    const maxPixels = 12e6; // 大きすぎるキャンバスはスマホで描けないので抑える
+    if (vp0.width * vp0.height * scale * scale > maxPixels) scale = Math.sqrt(maxPixels / (vp0.width * vp0.height));
+    const vp = page.getViewport({ scale });
+    const canvas = h('canvas', { width: Math.floor(vp.width), height: Math.floor(vp.height) });
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    el.innerHTML = '';
+    el.append(canvas);
+  } catch {
+    if (pdf === viewer.pdf) el.textContent = 'このページを表示できませんでした';
+  }
+}
+
+function closePdfViewer(fromHistory = false) {
+  const v = $('#pdf-viewer');
+  if (v.hidden) return;
+  v.hidden = true;
+  viewer.token++;
+  document.body.style.overflow = '';
+  viewer.observer?.disconnect();
+  viewer.pdf?.destroy();
+  viewer.pdf = null;
+  $('#pdf-pages').innerHTML = '';
+  if (!fromHistory && history.state?.pdfViewer) history.back();
+}
+
+function zoomPdf(factor) {
+  if (!viewer.pdf) return;
+  viewer.zoom = Math.min(3, Math.max(0.5, viewer.zoom * factor));
+  layoutPdfPages();
+}
+
+async function deleteViewedPdf() {
+  if (!viewer.id || !confirm('このPDFを端末から削除しますか？（取り込んだ脚本は消えません）')) return;
+  const id = viewer.id;
+  try { await deletePdf(id); } catch { toastError('削除できませんでした'); return; }
+  if (S.sourcePdfId === id) { S.sourcePdfId = null; markDirty(); }
+  closePdfViewer();
+  toast('PDFを削除しました');
+}
+
+window.addEventListener('popstate', () => closePdfViewer(true));
 
 // ============ ホーム画面に追加 ============
 
@@ -1031,11 +1301,18 @@ function init() {
   $('#title-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) e.target.blur(); });
   $('#btn-undo').addEventListener('click', undo);
   $('#btn-install').addEventListener('click', installApp);
+  $('#btn-more').addEventListener('click', openPdfLibrary);
+  $('#btn-import-pdf').addEventListener('click', openPdfImportChooser);
+  $('#pdf-file').addEventListener('change', onPdfChosen);
+  $('#pdf-close').addEventListener('click', () => closePdfViewer());
+  $('#pdf-zoom-in').addEventListener('click', () => zoomPdf(1.25));
+  $('#pdf-zoom-out').addEventListener('click', () => zoomPdf(0.8));
+  $('#pdf-delete').addEventListener('click', deleteViewedPdf);
   updateInstallButton();
   $('#btn-scripts').addEventListener('click', openScriptList);
   $('#sheet-close').addEventListener('click', closeSheet);
   $('#sheet-backdrop').addEventListener('click', closeSheet);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('#pdf-viewer').hidden) closePdfViewer(); else closeSheet(); } });
 
   $$('.tabbar button').forEach((b) => b.addEventListener('click', () => { flush(); setView(b.dataset.tab); }));
 

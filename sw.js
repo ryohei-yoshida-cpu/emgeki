@@ -1,5 +1,5 @@
 // オフライン対応：アプリ本体はネット優先（オフライン時はキャッシュ）、辞書とフォントは一度取得したら再利用
-const VERSION = 'v6';
+const VERSION = 'v7';
 const APP_CACHE = `emgeki-app-${VERSION}`;
 const DATA_CACHE = 'emgeki-data-v1';
 const APP_FILES = [
@@ -14,6 +14,9 @@ const APP_FILES = [
   'js/paginate.js',
   'js/proofread.js',
   'js/export.js',
+  'js/pdfstore.js',
+  'js/pdfjs.js',
+  'js/pdfparse.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

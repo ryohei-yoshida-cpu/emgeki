@@ -31,6 +31,9 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
     </button>
     <span id="save-status" class="save-status" aria-live="polite">保存済み</span>
+    <button id="btn-more" class="icon-btn" type="button" aria-label="取り込んだPDFを見る">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></svg>
+    </button>
   </header>
 
   <main id="main">
@@ -185,6 +188,10 @@
           <button id="btn-export-docx" class="btn" type="button">Word（.docx）で保存</button>
         </div>
         <input id="import-file" type="file" accept=".json,application/json" hidden>
+        <div class="row-btns wrap">
+          <button id="btn-import-pdf" class="btn" type="button">過去の脚本をPDFから読み込む</button>
+        </div>
+        <input id="pdf-file" type="file" accept="application/pdf,.pdf" hidden>
       </div>
     </section>
   </main>
@@ -216,6 +223,17 @@
   </div>
 
   <div id="toast" class="toast no-print" role="status" hidden></div>
+
+  <div id="pdf-viewer" class="pdf-viewer no-print" role="dialog" aria-modal="true" aria-labelledby="pdf-viewer-title" hidden>
+    <div class="pdf-viewer-head">
+      <button id="pdf-close" class="icon-btn" type="button" aria-label="閉じる"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18 9 12l6-6"/></svg></button>
+      <h2 id="pdf-viewer-title"></h2>
+      <button id="pdf-zoom-out" class="icon-btn" type="button" aria-label="縮小"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+      <button id="pdf-zoom-in" class="icon-btn" type="button" aria-label="拡大"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="pdf-delete" class="icon-btn" type="button" aria-label="このPDFを削除"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
+    </div>
+    <div id="pdf-pages" class="pdf-pages"></div>
+  </div>
   <div id="measure" class="measure" aria-hidden="true"></div>
 
   <script type="module" src="js/app.js"></script>
