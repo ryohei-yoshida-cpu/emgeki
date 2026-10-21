@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7a2e2e">
+  <title>使い方ガイド</title>
+  <meta name="description" content="演劇脚本ノートの使い方">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    body { background: var(--bg); }
+    .g-head {
+      position: sticky; top: 0; z-index: 5;
+      display: flex; align-items: center; gap: 8px;
+      padding: env(safe-area-inset-top, 0px) 12px 0; height: calc(52px + env(safe-area-inset-top, 0px));
+      background: color-mix(in srgb, var(--bg) 90%, transparent);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+    .g-head a.back { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 700; text-decoration: none; padding: 8px 4px; }
+    .g-head h1 { font-size: 16px; margin: 0; flex: 1; text-align: center; padding-right: 64px; }
+    .g-main { max-width: 720px; margin: 0 auto; padding: 8px 16px calc(40px + env(safe-area-inset-bottom, 0px)); }
+    .g-hero { margin: 16px 0 8px; padding: 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+    .g-hero p { margin: 4px 0; font-size: 15px; }
+    .g-hero .lead { font-family: var(--editor-font); font-size: 19px; font-weight: 700; }
+    nav.toc { margin: 14px 0 6px; padding: 12px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+    nav.toc b { font-size: 13px; color: var(--muted); }
+    nav.toc ol { margin: 6px 0 0; padding-left: 1.4em; columns: 2; column-gap: 18px; font-size: 14px; }
+    nav.toc li { margin: 3px 0; break-inside: avoid; }
+    nav.toc a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+    @media (max-width: 420px) { nav.toc ol { columns: 1; } }
+    section.g { margin-top: 26px; scroll-margin-top: 64px; }
+    section.g h2 { font-size: 18px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); color: var(--text); display: flex; align-items: baseline; gap: 8px; }
+    section.g h2 .num { color: var(--accent); font-family: var(--editor-font); }
+    section.g h3 { font-size: 15px; margin: 16px 0 6px; color: var(--accent); }
+    section.g p, section.g li { font-size: 15px; line-height: 1.8; }
+    section.g ul, section.g ol { padding-left: 1.3em; margin: 6px 0; }
+    .ui { display: inline-flex; align-items: center; gap: 3px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 700; line-height: 1.7; white-space: nowrap; vertical-align: 1px; }
+    .ui.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .ui.tab { border-radius: 99px; }
+    .tip { margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--info) 12%, transparent); font-size: 14px; }
+    .warn { margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--warn) 14%, transparent); font-size: 14px; }
+    .tip b:first-child, .warn b:first-child { margin-right: 4px; }
+    table.g-t { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; background: var(--surface); border-radius: 12px; overflow: hidden; }
+    table.g-t th, table.g-t td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.6; }
+    table.g-t th { background: var(--surface-2); font-size: 12px; color: var(--muted); white-space: nowrap; }
+    table.g-t td:first-child { white-space: nowrap; font-weight: 700; }
+    .sample {
+      margin: 10px 0; padding: 14px 16px; border-radius: 12px; background: #fff; color: #111;
+      font-family: var(--editor-font); font-size: 15px; line-height: 1.9; border: 1px solid var(--line);
+    }
+    .sample .nm { font-weight: 700; }
+    .sample .sit { text-align: center; margin-top: 1.9em; }
+    .sample .chap { text-align: right; font-weight: 700; }
+    .sample .hang { padding-left: 3em; text-indent: -3em; }
+    .steps { counter-reset: s; list-style: none; padding-left: 0 !important; }
+    .steps > li { counter-increment: s; position: relative; padding-left: 34px; margin: 8px 0; }
+    .steps > li::before { content: counter(s); position: absolute; left: 0; top: 2px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 700; display: grid; place-items: center; }
+    .faq dt { font-weight: 700; margin-top: 14px; font-size: 15px; }
+    .faq dt::before { content: "Q. "; color: var(--accent); }
+    .faq dd { margin: 4px 0 0; font-size: 15px; line-height: 1.8; }
+    .faq dd::before { content: "A. "; color: var(--muted); font-weight: 700; }
+    .to-top { display: block; text-align: right; font-size: 13px; margin-top: 6px; color: var(--muted); }
+    .g-foot { margin-top: 36px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header class="g-head">
+    <a class="back" href="./"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18 9 12l6-6"/></svg>アプリへ</a>
+    <h1>使い方ガイド</h1>
+  </header>
+
+  <main class="g-main" id="top">
+    <div class="g-hero">
+      <p class="lead">演劇脚本ノート</p>
+      <p>スマートフォンで演劇の脚本を書いて、A4で印刷できるアプリです。書いた内容は自動で保存され、電波がなくても使えます。</p>
+    </div>
+
+    <nav class="toc" aria-label="目次">
+      <b>目次</b>
+      <ol>
+        <li><a href="#start">はじめに</a></li>
+        <li><a href="#screen">画面の見方</a></li>
+        <li><a href="#write">脚本を書く</a></li>
+        <li><a href="#speaker">話す人物の選び方</a></li>
+        <li><a href="#extra">メモと演技の指示</a></li>
+        <li><a href="#people">登場人物と読み仮名</a></li>
+        <li><a href="#cast">キャスティング（配役）</a></li>
+        <li><a href="#check">誤字・脱字チェック</a></li>
+        <li><a href="#print">印刷・PDF</a></li>
+        <li><a href="#settings">設定でできること</a></li>
+        <li><a href="#save">保存とファイル書き出し</a></li>
+        <li><a href="#pdf">過去の脚本をPDFから読み込む</a></li>
+        <li><a href="#faq">困ったとき</a></li>
+      </ol>
+    </nav>
+
+    <section class="g" id="start">
+      <h2><span class="num">1</span>はじめに</h2>
+      <h3>ホーム画面に追加する</h3>
+      <p>アプリのように使うために、最初にホーム画面へ追加しておくのがおすすめです。</p>
+      <ol class="steps">
+        <li>画面上の <span class="ui">ホームに追加</span> を押します。</li>
+        <li><b>Android</b>：確認が出たら「追加」または「インストール」を押します。</li>
+        <li><b>iPhone</b>：Safari の共有ボタン（□に↑）→「ホーム画面に追加」→「追加」の順に押します（ボタンを押すと手順が表示されます）。</li>
+      </ol>
+      <div class="tip"><b>💡</b>ホーム画面から開くと全画面で使え、電波がない場所でも書けます。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="screen">
+      <h2><span class="num">2</span>画面の見方</h2>
+      <table class="g-t">
+        <tr><th>場所</th><th>できること</th></tr>
+        <tr><td>左上 ☰</td><td>脚本の切り替え、新しい脚本、複製、削除、ファイルに保存、PDFから読み込む</td></tr>
+        <tr><td>タイトル</td><td>押すと題名を書き換えられます</td></tr>
+        <tr><td>↶</td><td>直前の操作（削除・移動・人物の変更など）を元に戻す</td></tr>
+        <tr><td>保存済み</td><td>自動保存の状態。「編集中…」のあと「保存済み」になります</td></tr>
+        <tr><td>右上 ⋯</td><td>読み込んだPDFを開く</td></tr>
+      </table>
+      <p>画面下のタブで切り替えます。</p>
+      <p>
+        <span class="ui tab">脚本</span> 書く
+        <span class="ui tab">人物</span> 登場人物
+        <span class="ui tab">配役</span> キャスティング
+        <span class="ui tab">校正</span> 誤字チェック
+        <span class="ui tab">印刷</span> 印刷・PDF
+        <span class="ui tab">設定</span>
+      </p>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="write">
+      <h2><span class="num">3</span>脚本を書く</h2>
+      <p>「脚本」タブの下にある4つのボタンで、段落を追加していきます。新しい段落は、いま書いている段落のすぐ後ろに入ります。</p>
+      <table class="g-t">
+        <tr><th>ボタン</th><th>動き</th></tr>
+        <tr><td><span class="ui primary">「」セリフ</span></td><td>話す人物を選ぶと「名前「　」」の段落ができます。<b>改行しても同じセリフのまま</b>です。</td></tr>
+        <tr><td><span class="ui">ト書き</span></td><td>動きや情景の説明を書きます。</td></tr>
+        <tr><td><span class="ui">シチュエーション</span></td><td>前の行から1行あけて、<b>中央に配置</b>される行になります。続けて「セリフ」を押すと通常のセリフに戻ります。</td></tr>
+        <tr><td><span class="ui">章立て</span></td><td>「1章」「2章」…と自動で番号が付き、右上に配置されます。章のタイトルも付けられます。</td></tr>
+      </table>
+      <div class="sample" aria-label="印刷イメージ">
+        <div class="chap">1章　あの日の公園</div>
+        <div>夕方の公園。ベンチがひとつ。</div>
+        <div class="hang"><span class="nm">教授</span>「やぁ、諸君。今日は外で稽古をしようじゃないか。」</div>
+        <div class="hang"><span class="nm">裕二</span>「ぼくしかいないよ、教授。」</div>
+        <div class="sit">夕焼け、空が赤に変わる</div>
+      </div>
+      <h3>段落の操作</h3>
+      <ul>
+        <li>各段落の右（縦書きでは上）の <span class="ui">⋯</span> から、話す人物の変更、種類の変更（セリフ⇔ト書きなど）、上へ・下へ移動、上に段落を追加、削除ができます。</li>
+        <li>空の段落で <b>Backspace（削除キー）</b> を押すと、その段落が消えて前の段落に戻ります。</li>
+        <li>空の段落でボタンを押すと、新しい段落を作らずにその段落の種類が切り替わります。</li>
+        <li>間違えたときは上の <span class="ui">↶</span> で元に戻せます。</li>
+      </ul>
+      <h3>縦書きで書く</h3>
+      <p>「設定 → 脚本画面（書くとき）→ 書く向き」で <b>縦書き</b> にできます。右から左へ書き進み、横にスクロールします。印刷の向きとは別に選べます。</p>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="speaker">
+      <h2><span class="num">4</span>話す人物の選び方</h2>
+      <p><span class="ui primary">「」セリフ</span> を押すと人物の一覧が出ます。会話の流れから「次はこの人？」と思われる人物が先頭に並びます。一覧にない人は、下の欄に名前を入れて <span class="ui primary">追加して選ぶ</span> で増やせます。</p>
+      <table class="g-t">
+        <tr><th>ボタン</th><th>使いどころ</th></tr>
+        <tr><td><span class="ui">複数人を選ぶ</span></td><td>同時に話すとき。何人でも選べ、「教授・裕二「せーの！」」のように表示されます。</td></tr>
+        <tr><td><span class="ui">全員</span></td><td>全員で言うセリフ。「全員「…」」になります。</td></tr>
+        <tr><td><span class="ui">モブ</span> <span class="ui">脇役</span><br><span class="ui">群衆</span> <span class="ui">煽り</span></td><td>名前を付けて使います（例：通行人A、村人たち）。<b>「配役に追加」にチェックしたときだけ</b>、配役タブと配役表に出ます。</td></tr>
+      </table>
+      <div class="tip"><b>💡</b>人物の名前のところを押すと、そのセリフの話す人物を選び直せます。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="extra">
+      <h2><span class="num">5</span>メモと演技の指示</h2>
+      <p>各段落の <span class="ui">⋯</span> から <span class="ui">メモを追加</span>・<span class="ui">演技の指示を追加</span> ができます。ふだんは表示されず、書いたものだけが段落の下に出ます。</p>
+      <ul>
+        <li><b>演技の指示</b>の例：怒りをこらえて／間をあけて／スポットライトで照らす（照明・音響のきっかけにも）</li>
+        <li><b>メモ</b>の例：ここで客席を見る／小道具を受け取る</li>
+      </ul>
+      <p>印刷すると、本文の<b>上にメモ</b>、<b>下（約1/5）に演技の指示</b>のスペースができ、書いた内容がその段落と同じ列に入ります。本文との境には1本線が入ります。横書きの台本では、メモは左、指示は右です。</p>
+      <div class="tip"><b>💡</b>スペースの大きさや境の線は「設定 → 演者用の書き込み」で変えられます。何も書かなくても、スペースだけ作って演者の書き込み用にも使えます。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="people">
+      <h2><span class="num">6</span>登場人物と読み仮名</h2>
+      <p>「人物」タブで登場人物をまとめて管理します。</p>
+      <ul>
+        <li><b>名前は一か所で管理</b>：ここで名前を変えると、脚本中のすべてのセリフに反映されます。ト書きなど本文に書いた名前も、確認のうえ一括で置き換えられます。</li>
+        <li><b>読み仮名は自動</b>：漢字の名前には読み仮名が自動で付き、印刷ではルビになります。違っていたら直接書き換えられます。<span class="ui">自動</span> で付け直せます（ひらがな・カタカナだけの名前には付きません）。</li>
+        <li>左の丸を押すと色が変わります（脚本画面での見分け用）。<span class="ui">↑</span><span class="ui">↓</span> で並べ替えられます。</li>
+        <li>モブなどは「配役に追加」のチェックで、配役表に出すかを切り替えられます。</li>
+      </ul>
+      <div class="tip"><b>💡</b>読み仮名の辞書は、初めて使うときに一度だけ読み込みます（約18MB）。Wi-Fi のある場所で一度使っておくと安心です。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="cast">
+      <h2><span class="num">7</span>キャスティング（配役）</h2>
+      <p>「配役」タブで、役ごとに演じる人の名前を入れます。1人で複数の役も演じられます。</p>
+      <ul>
+        <li>「演者ごとの出番」に、演者ごとの役・セリフ数・出番の章が出ます。</li>
+        <li>配役表は、印刷すると表紙の次のページに入ります（設定で付けない、も選べます）。</li>
+      </ul>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="check">
+      <h2><span class="num">8</span>誤字・脱字チェック</h2>
+      <p>「校正」タブの <span class="ui primary">チェックする</span> で、脚本全体を調べます。</p>
+      <ul>
+        <li>よくある誤字・誤変換（シュミレーション→シミュレーションなど）</li>
+        <li>余分な文字や重なり（変わる<b>る</b>、私は<b>は</b>、行き<b>ま</b>ます など）</li>
+        <li>句読点の重なり、括弧の閉じ忘れ、空のセリフ、半角カナ</li>
+        <li>同じ人物のセリフが続いたとき（「違う人物では？」と出て、ワンタップで変更できます）</li>
+        <li>人物名の打ち間違い、ら抜き言葉（台詞の口調として意図的なら「無視」で大丈夫です）</li>
+      </ul>
+      <p>見つかったものは <span class="ui primary">「〜」に直す</span> で1件ずつ、<span class="ui">まとめて修正</span> で一度に直せます。<span class="ui">本文へ</span> でその場所に移動します。</p>
+      <div class="tip"><b>💡</b>「赤」と「朱」の取り違えのように、意味が通ってしまう誤字は見つけられません。最後は目で確認してください。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="print">
+      <h2><span class="num">9</span>印刷・PDF</h2>
+      <ol class="steps">
+        <li>「印刷」タブを開くと、A4のページの見た目が表示されます。</li>
+        <li>上のボタンで <span class="ui">縦書き</span>／<span class="ui">横書き</span>、<span class="ui">A4 縦</span>／<span class="ui">A4 横</span> を選びます。</li>
+        <li><span class="ui primary">印刷 / PDF保存</span> を押します。</li>
+        <li><b>Android</b>：プリンタを選ぶか「PDFとして保存」。<b>iPhone</b>：プリンタを選ぶか、共有ボタンから「"ファイル"に保存」。</li>
+      </ol>
+      <p>表紙・配役表・ページ番号・メモと指示のスペースも、設定どおりに入ります。</p>
+      <div class="warn"><b>⚠</b>メモ・指示のスペースは<b>印刷するページにだけ</b>付きます。書く画面には出ないので、「印刷」タブで確認してください。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="settings">
+      <h2><span class="num">10</span>設定でできること</h2>
+      <table class="g-t">
+        <tr><th>項目</th><th>内容</th></tr>
+        <tr><td>作品</td><td>タイトル・作者（表紙に入ります）</td></tr>
+        <tr><td>書く向き</td><td>脚本画面を横書き／縦書きにする</td></tr>
+        <tr><td>書式</td><td>印刷の縦書き／横書き、用紙の向き、フォント（10種類）、文字の大きさ、行間</td></tr>
+        <tr><td>ト書きの位置</td><td>上部（字下げなし）／2字下げ／3字下げ</td></tr>
+        <tr><td>読み仮名</td><td>毎回ふる／初登場のみ／ふらない</td></tr>
+        <tr><td>章の表記</td><td>1章／第1章／第一章、章ごとに改ページするか</td></tr>
+        <tr><td>演者用の書き込み</td><td>メモのスペースの大きさ、演技の指示のスペース、境の1本線</td></tr>
+        <tr><td>印刷</td><td>表紙・配役表・ページ番号を付けるか</td></tr>
+      </table>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="save">
+      <h2><span class="num">11</span>保存とファイル書き出し</h2>
+      <ul>
+        <li><b>自動保存</b>：入力のたびに保存されます。画面を閉じても、アプリを終了しても内容は残ります。</li>
+        <li><b>複数の脚本</b>：☰ の <span class="ui primary">＋ 新しい脚本</span> で増やし、「脚本を切り替える」から選びます。<span class="ui">複製</span> で改訂版を作るのにも便利です。</li>
+        <li><b>ファイルに保存</b>：☰ または設定から <span class="ui">テキスト（.txt）</span>・<span class="ui">Word（.docx）</span> で保存できます。Word には表紙・配役表・ルビ・章・ページ番号が入り、メモと指示は段落の下に［メモ］［指示］として入ります。</li>
+        <li><b>バックアップ</b>：設定の <span class="ui">バックアップを書き出す</span> で、機種変更のときに持っていけるファイルを作れます。新しい端末で <span class="ui">バックアップを読み込む</span> を押して戻します。</li>
+      </ul>
+      <div class="warn"><b>⚠</b>脚本はこの端末のブラウザの中に保存されています。ブラウザの閲覧データ（サイトデータ）を消去したり、ホーム画面のアプリを削除すると消えてしまいます。大事な脚本はときどきバックアップしてください。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="pdf">
+      <h2><span class="num">12</span>過去の脚本をPDFから読み込む</h2>
+      <p>☰ または設定の <span class="ui">PDFから読み込む</span> で、2つの方式から選べます。</p>
+      <table class="g-t">
+        <tr><th>方式</th><th>内容</th></tr>
+        <tr><td>PDFモード</td><td>PDFをそのまま保存して読むだけ。☰ の「脚本を切り替える」（PDFの印付き）や右上の ⋯ から開けます。拡大・縮小ができます。</td></tr>
+        <tr><td>PDF＋修正<br>モード</td><td>PDFの文字を読み取り、人物・セリフ・ト書き・章・メモ・指示を<b>新しい脚本として取り込み</b>、編集できるようにします。元のPDFも保存され、見比べられます。</td></tr>
+      </table>
+      <div class="warn"><b>⚠</b>PDF＋修正モードは、レイアウトが崩れたり、名前やセリフが正しく取り込めないことがあります。取り込み後は元のPDFと見比べて確認してください。紙をスキャンしただけのPDF（文字の情報がないもの）や、パスワード付きのPDFは取り込めません。</div>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <section class="g" id="faq">
+      <h2><span class="num">13</span>困ったとき</h2>
+      <dl class="faq">
+        <dt>メモ欄や指示欄が見当たらない</dt>
+        <dd>書く画面には出ません。「印刷」タブのページで確認してください。スペースは設定の「演者用の書き込み」で付けます。</dd>
+        <dt>新しい機能が出てこない／古い画面のまま</dt>
+        <dd>電波のある場所でページを2回ほど開き直してください。最新の版に切り替わります。</dd>
+        <dt>読み仮名が付かない</dt>
+        <dd>初回は辞書の読み込みに時間がかかります。電波のある場所で「人物」タブの <span class="ui">自動</span> を押してください。ひらがな・カタカナだけの名前には付きません。</dd>
+        <dt>縦書きの画面が書きにくい</dt>
+        <dd>書いている列を指で右へ寄せる（左から右へスワイプ）と、書きやすい位置に持ってこられます。横書きで書いて、印刷だけ縦書きにすることもできます。</dd>
+        <dt>間違えて消してしまった</dt>
+        <dd>すぐなら上の <span class="ui">↶</span> で元に戻せます。脚本ごと削除したものは戻せないので、ときどきバックアップしてください。</dd>
+        <dt>印刷すると文字が小さい／大きい</dt>
+        <dd>設定の「文字の大きさ」と「行間」で調整できます。「印刷」タブで見た目を確かめてから印刷してください。</dd>
+      </dl>
+      <a class="to-top" href="#top">↑ 目次へ</a>
+    </section>
+
+    <div class="g-foot">
+      <a class="btn primary" href="./">アプリに戻る</a>
+    </div>
+  </main>
+</body>
+</html>

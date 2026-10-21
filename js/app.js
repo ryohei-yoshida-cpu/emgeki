@@ -1093,7 +1093,8 @@ async function openScriptList() {
   const exportRow = h('div', { class: 'row-btns wrap' },
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportText(); } }, 'テキスト（.txt）'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportDocx(); } }, 'Word（.docx）'));
-  openSheet('脚本の一覧', actions, h('p', { class: 'sheet-label' }, 'この脚本をファイルに保存'), exportRow, h('p', { class: 'sheet-label' }, '脚本を切り替える'), list);
+  const guide = h('p', { class: 'sheet-guide' }, h('a', { href: 'guide.html' }, '📖 使い方ガイド'));
+  openSheet('脚本の一覧', actions, h('p', { class: 'sheet-label' }, 'この脚本をファイルに保存'), exportRow, h('p', { class: 'sheet-label' }, '脚本を切り替える'), list, guide);
 }
 
 function openScript(id) {

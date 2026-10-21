@@ -1,10 +1,11 @@
 // オフライン対応：アプリ本体はネット優先（オフライン時はキャッシュ）、辞書とフォントは一度取得したら再利用
-const VERSION = 'v11';
+const VERSION = 'v12';
 const APP_CACHE = `emgeki-app-${VERSION}`;
 const DATA_CACHE = 'emgeki-data-v1';
 const APP_FILES = [
   './',
   'index.html',
+  'guide.html',
   'css/app.css',
   'js/app.js',
   'js/store.js',
