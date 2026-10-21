@@ -5,6 +5,28 @@ import { fontCss } from './fonts.js';
 const PAGE_MM = { portrait: [210, 297], landscape: [297, 210] };
 const MARGIN_MM = { top: 20, bottom: 22, side: 20 };
 const MM = 96 / 25.4; // 1mm の CSS px
+export const MEMO_FRACTION = { none: 0, small: 0.25, medium: 0.33, large: 0.45 };
+const MEMO_GAP_MM = 5;   // メモ欄と本文のすき間
+const RULE_MM = 8;       // 罫線の間隔
+
+// 本文の枠とメモ欄の枠（どちらも用紙の端からの距離 mm）
+export function pageLayout(st) {
+  const [pw, ph] = PAGE_MM[st.orientation] || PAGE_MM.portrait;
+  const body = { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
+  const frac = MEMO_FRACTION[st.memoArea] || 0;
+  if (!frac) return { body, memo: null };
+  const memo = { ...body };
+  const pos = st.memoPosition || 'top';
+  const across = pos === 'top' || pos === 'bottom'
+    ? ph - MARGIN_MM.top - MARGIN_MM.bottom
+    : pw - MARGIN_MM.side * 2;
+  const size = across * frac;
+  if (pos === 'top') { memo.bottom = ph - body.top - size; body.top += size + MEMO_GAP_MM; }
+  if (pos === 'bottom') { memo.top = ph - body.bottom - size; body.bottom += size + MEMO_GAP_MM; }
+  if (pos === 'left') { memo.right = pw - body.left - size; body.left += size + MEMO_GAP_MM; }
+  if (pos === 'right') { memo.left = pw - body.right - size; body.right += size + MEMO_GAP_MM; }
+  return { body, memo, pos, size };
+}
 
 export function pageSizePx(orientation) {
   const [w, hgt] = PAGE_MM[orientation] || PAGE_MM.portrait;
@@ -39,7 +61,9 @@ export function renderPages(script, host) {
 
   host.innerHTML = '';
 
-  function newPage() {
+  const layout = pageLayout(st);
+
+  function newPage(withMemo = false) {
     const page = h('div', {
       class: `page ${vertical ? 'vertical' : 'horizontal'} ${st.orientation}`,
       style: {
@@ -52,15 +76,17 @@ export function renderPages(script, host) {
     });
     page.style.setProperty('--indent', String(st.directionIndent || 0));
     page.style.setProperty('--lh', String(st.lineHeight));
-    const body = h('div', {
-      class: 'page-body',
-      style: {
-        top: `${MARGIN_MM.top}mm`,
-        bottom: `${MARGIN_MM.bottom}mm`,
-        left: `${MARGIN_MM.side}mm`,
-        right: `${MARGIN_MM.side}mm`,
-      },
-    });
+    const box = withMemo && layout.memo ? layout.body : { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
+    const inset = (b) => ({ top: `${b.top}mm`, bottom: `${b.bottom}mm`, left: `${b.left}mm`, right: `${b.right}mm` });
+    if (withMemo && layout.memo) {
+      // 罫線は書く向きに合わせる（縦書きなら縦線、横書きなら横線）
+      const ruled = st.memoRuled
+        ? `repeating-linear-gradient(${vertical ? 'to left' : 'to bottom'}, transparent 0 calc(${RULE_MM}mm - 0.6px), #c8c8c8 calc(${RULE_MM}mm - 0.6px) ${RULE_MM}mm)`
+        : 'none';
+      page.append(h('div', { class: `memo-area memo-${layout.pos}`, style: { ...inset(layout.memo), backgroundImage: ruled } },
+        h('span', { class: 'memo-label' }, 'メモ')));
+    }
+    const body = h('div', { class: 'page-body', style: inset(box) });
     page.append(body);
     host.append(page);
     pages.push(page);
@@ -121,6 +147,8 @@ export function renderPages(script, host) {
         return h('div', { class: 'p-dir' + (head ? '' : ' cont') }, text);
       case 'situation':
         return h('div', { class: 'p-sit' + (head ? '' : ' cont') }, text);
+      case 'note':
+        return h('div', { class: 'p-note', style: { paddingInlineStart: `${block.indent}em` } }, `（${text}）`);
       case 'chapter':
         return h('div', { class: 'p-chap' },
           numberNodes(chapterLabel(chapterNo, st.chapterFormat), vertical),
@@ -130,19 +158,29 @@ export function renderPages(script, host) {
     }
   }
 
-  for (const block of script.blocks) {
+  // 演技の指示はセリフの直後に置く小さな段落として扱う
+  const items = [];
+  for (const b of script.blocks) {
+    items.push(b);
+    if (b.type === 'dialogue' && st.actingNotes && b.note && b.note.trim()) {
+      const c = chars.get(b.charId);
+      items.push({ type: 'note', text: b.note.trim(), indent: (c ? c.name.length : 6) + 1 });
+    }
+  }
+
+  for (const block of items) {
     if (block.type === 'chapter') {
       chapterNo++;
       if (st.chapterPageBreak && body && body.children.length) body = null;
     }
-    if (!body) body = newPage();
+    if (!body) body = newPage(true);
 
     let ruby = false;
     if (block.type === 'dialogue') {
       ruby = st.ruby === 'all' || (st.ruby === 'first' && !seen.has(block.charId));
       seen.add(block.charId);
     }
-    const splittable = block.type !== 'chapter';
+    const splittable = block.type !== 'chapter' && block.type !== 'note';
     let text = block.text;
     let head = true;
 
@@ -168,16 +206,16 @@ export function renderPages(script, host) {
           body.append(makeEl(block, text.slice(0, best), head, false, ruby && head));
           text = text.slice(best).replace(/^\n/, '');
           head = false;
-          body = newPage();
+          body = newPage(true);
           continue;
         }
       }
       if (!body.children.length) { body.append(el); break; } // 1ページに収まらない要素はそのまま置く
-      body = newPage();
+      body = newPage(true);
     }
   }
 
-  if (!pages.length) newPage();
+  if (!pages.length) newPage(true);
 
   if (st.pageNumbers) {
     const offset = st.printTitlePage ? 1 : 0;

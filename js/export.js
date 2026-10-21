@@ -1,6 +1,7 @@
 // テキスト（.txt）と Word（.docx）への書き出し
 import { chapterLabel, hasKanji } from './util.js';
 import { fontById } from './fonts.js';
+import { pageLayout } from './paginate.js';
 
 const charMap = (script) => new Map(script.characters.map((c) => [c.id, c]));
 const nameOf = (c) => (c ? c.name : '人物？');
@@ -43,6 +44,7 @@ export function scriptToText(script) {
         const name = nameOf(chars.get(b.charId));
         const pad = '　'.repeat(name.length + 1);
         out.push(`${name}「${b.text.split('\n').join(`\n${pad}`)}」`);
+        if (st.actingNotes && b.note && b.note.trim()) out.push(`${pad}（${b.note.trim().split('\n').join(`\n${pad}`)}）`);
         break;
       }
       case 'direction':
@@ -123,6 +125,11 @@ export function scriptToDocx(script) {
         const n = nameOf(c).length + 1;
         const ind = `<w:ind w:left="${Math.round(n * charTw)}" w:leftChars="${n * 100}" w:hanging="${Math.round(n * charTw)}" w:hangingChars="${n * 100}"/>`;
         body.push(para(nameRun(c, useRuby(b.charId)) + textRuns('「') + textRuns(b.text) + textRuns('」'), ind));
+        if (st.actingNotes && b.note && b.note.trim()) {
+          const nsz = Math.round(sz * 0.85);
+          body.push(para(textRuns(`（${b.note.trim()}）`, `<w:color w:val="555555"/><w:sz w:val="${nsz}"/><w:szCs w:val="${nsz}"/>`),
+            `<w:ind w:left="${Math.round(n * charTw)}" w:leftChars="${n * 100}"/>`));
+        }
         break;
       }
       case 'direction': {
@@ -148,9 +155,17 @@ export function scriptToDocx(script) {
   }
 
   const [w, h] = st.orientation === 'landscape' ? [16838, 11906] : [11906, 16838];
+  // 演者のメモ欄：その側の余白を広げ、本文との境にページ罫線を1本引く（表紙には付けない）
+  const TW = 56.7; // 1mm の twip
+  const { body: box, memo, pos } = pageLayout(st);
+  const mar = { top: Math.round(box.top * TW), bottom: Math.round(box.bottom * TW), left: Math.round(box.left * TW), right: Math.round(box.right * TW) };
+  const borders = memo
+    ? `<w:pgBorders w:offsetFrom="text"${st.printTitlePage ? ' w:display="notFirstPage"' : ''}><w:${pos} w:val="single" w:sz="6" w:space="12" w:color="555555"/></w:pgBorders>`
+    : '';
   const footerRef = st.pageNumbers ? '<w:footerReference w:type="default" r:id="rIdFooter"/>' : '';
   const sect = `<w:sectPr>${footerRef}<w:pgSz w:w="${w}" w:h="${h}"${st.orientation === 'landscape' ? ' w:orient="landscape"' : ''}/>`
-    + '<w:pgMar w:top="1134" w:right="1134" w:bottom="1247" w:left="1134" w:header="567" w:footer="510" w:gutter="0"/>'
+    + `<w:pgMar w:top="${mar.top}" w:right="${mar.right}" w:bottom="${mar.bottom}" w:left="${mar.left}" w:header="567" w:footer="510" w:gutter="0"/>`
+    + borders
     + (st.pageNumbers && st.printTitlePage ? '<w:pgNumType w:start="0"/><w:titlePg/>' : '')
     + (vertical ? '<w:textDirection w:val="tbRl"/>' : '')
     + '</w:sectPr>';

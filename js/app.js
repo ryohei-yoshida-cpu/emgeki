@@ -154,6 +154,7 @@ function blockEl(b, chapNums) {
         h('span', { class: 'q' }, '「'),
         textArea(b, 'セリフ'),
         h('span', { class: 'q q-end' }, '」'),
+        S.settings.actingNotes ? h('textarea', { class: 'blk-note', rows: 1, placeholder: '演技の指示（例：怒りをこらえて）', value: b.note || '', 'aria-label': '演技の指示' }) : null,
         more);
     }
     case 'direction':
@@ -343,6 +344,12 @@ function changeChar(id) {
 function bindEditor() {
   const ed = $('#editor');
   ed.addEventListener('input', (e) => {
+    const note = e.target.closest('.blk-note');
+    if (note) {
+      const nb = S.blocks.find((x) => x.id === note.closest('.blk').dataset.id);
+      if (nb) { nb.note = note.value; autosize(note); markDirty(); }
+      return;
+    }
     const field = e.target.closest('.blk-text');
     if (!field) return;
     const b = S.blocks.find((x) => x.id === field.closest('.blk').dataset.id);

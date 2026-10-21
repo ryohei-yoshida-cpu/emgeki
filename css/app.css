@@ -191,6 +191,14 @@ body.view-editor .view[data-view="editor"] { padding-bottom: calc(var(--tabbar-h
 }
 .blk-name ruby rt { font-size: 9px; font-weight: 400; color: var(--muted); }
 .blk-name.missing { color: var(--err); }
+.blk-dialogue { flex-wrap: wrap; }
+.blk textarea.blk-note {
+  flex: 1 0 100%;
+  margin: 2px 0 2px 2.2em; padding: 2px 0 2px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--c, var(--muted)) 45%, transparent);
+  font-size: 14px; line-height: 1.6; min-height: 1.6em; color: var(--muted);
+}
+.blk textarea.blk-note:focus { color: var(--text); }
 .q { flex: none; font-size: 17px; line-height: 1.75; color: var(--muted); }
 .q-end { align-self: flex-end; }
 
@@ -377,6 +385,13 @@ body.kb-open .tabbar { display: none; }
   position: absolute; left: 0; right: 0; bottom: 9mm;
   text-align: center; font-size: 9pt; color: #555; writing-mode: horizontal-tb;
 }
+.memo-area { position: absolute; }
+.memo-top { border-bottom: 1px solid #555; }
+.memo-bottom { border-top: 1px solid #555; }
+.memo-left { border-right: 1px solid #555; }
+.memo-right { border-left: 1px solid #555; }
+.memo-label { position: absolute; top: 1.5mm; left: 2mm; font-size: 7pt; color: #888; writing-mode: horizontal-tb; letter-spacing: .1em; }
+.p-note { font-size: .85em; color: #444; white-space: pre-wrap; overflow-wrap: anywhere; }
 .p-dlg { display: flex; align-items: flex-start; }
 .p-name { flex: none; font-weight: 700; }
 .p-name ruby rt { font-weight: 400; }

@@ -150,6 +150,23 @@
         </label>
         <label class="switch-row"><input type="checkbox" data-setting="chapterPageBreak"> 章ごとに改ページ（章を右上に置く）</label>
 
+        <h2>演者用の書き込み</h2>
+        <label class="field">メモ欄（演者が書き込むスペース）
+          <select data-setting="memoArea">
+            <option value="none">なし</option><option value="small">小さめ（約1/4）</option>
+            <option value="medium">ふつう（約1/3）</option><option value="large">大きめ（約1/2）</option>
+          </select>
+        </label>
+        <label class="field">メモ欄の位置
+          <select data-setting="memoPosition">
+            <option value="top">上</option><option value="bottom">下</option><option value="right">右</option><option value="left">左</option>
+          </select>
+        </label>
+        <label class="switch-row"><input type="checkbox" data-setting="memoRuled"> メモ欄に罫線を引く</label>
+        <p class="note">メモ欄と本文の間には区切りの線が入ります。台本の本文ページにだけ付きます（表紙・配役表には付きません）。</p>
+        <label class="switch-row"><input type="checkbox" data-setting="actingNotes"> セリフの下に「演技の指示」を付ける</label>
+        <p class="note">オンにすると、脚本画面の各セリフの下に「演技の指示」の欄が出ます（例：怒りをこらえて）。印刷やWordでは、セリフの下に（ ）付きの小さな字で入ります。</p>
+
         <h2>印刷</h2>
         <label class="switch-row"><input type="checkbox" data-setting="printTitlePage"> 表紙を付ける</label>
         <label class="switch-row"><input type="checkbox" data-setting="printCastPage"> 配役表を付ける</label>
