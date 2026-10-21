@@ -80,7 +80,7 @@
     <section id="view-check" class="view no-print" data-view="check">
       <div class="panel">
         <h2>誤字・脱字チェック</h2>
-        <p class="note">よくある誤字、「変わるる」のような余分な文字や重複、助詞や句読点の重なり、括弧の閉じ忘れ、人物名の打ち間違い、半角カナなどを調べます。<span class="lv lv-info">参考</span> は台詞の口調として意図的な場合もあります。</p>
+        <p class="note">よくある誤字、「変わるる」のような余分な文字や重複、同じ人物のセリフの連続、助詞や句読点の重なり、括弧の閉じ忘れ、人物名の打ち間違い、半角カナなどを調べます。<span class="lv lv-info">参考</span> は台詞の口調として意図的な場合もあります。</p>
         <div class="row-btns">
           <button id="btn-run-check" class="btn primary" type="button">チェックする</button>
           <button id="btn-fix-all" class="btn" type="button" hidden>まとめて修正</button>
@@ -164,7 +164,8 @@
         <div class="row-btns wrap">
           <button id="btn-export" class="btn" type="button">バックアップを書き出す</button>
           <button id="btn-import" class="btn" type="button">バックアップを読み込む</button>
-          <button id="btn-export-txt" class="btn" type="button">テキストで書き出す</button>
+          <button id="btn-export-txt" class="btn" type="button">テキスト（.txt）で保存</button>
+          <button id="btn-export-docx" class="btn" type="button">Word（.docx）で保存</button>
         </div>
         <input id="import-file" type="file" accept=".json,application/json" hidden>
       </div>

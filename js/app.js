@@ -4,6 +4,7 @@ import { renderPages, pageSizePx } from './paginate.js';
 import { getReading, isTokenizerRequested, loadTokenizer } from './furigana.js';
 import { runCheck, applyFix, applyAll } from './proofread.js';
 import { FONTS, fontCss, ensureFont } from './fonts.js';
+import { scriptToText, scriptToDocx } from './export.js';
 import { $, $$, h, uid, hasKanji, chapterLabel, countOccurrences, formatDate, safeStorage } from './util.js';
 
 let S = null;            // 編集中の脚本
@@ -667,12 +668,24 @@ function renderCheck(run) {
     const who = b?.type === 'dialogue' ? (charById(b.charId)?.name || '人物？') : { direction: 'ト書き', situation: 'シチュエーション', chapter: '章' }[b?.type];
     list.append(h('li', { class: 'check-item' },
       h('div', { class: 'msg' }, h('span', { class: `lv lv-${is.level}` }, LV[is.level]), is.message),
-      h('div', { class: 'ctx' }, h('span', { class: 'who' }, `${who}：`), is.context.before, h('mark', {}, is.context.hit || '　'), is.context.after),
+      h('div', { class: 'ctx' }, h('span', { class: 'who' }, `${who}：`), is.context.before, is.end > is.start ? h('mark', {}, is.context.hit) : null, is.context.after),
       h('div', { class: 'acts' },
         is.suggestion != null ? h('button', { class: 'btn small primary', type: 'button', onclick: () => fixOne(is) }, is.suggestion === '' ? '削除する' : `「${is.suggestion}」に直す`) : null,
+        is.rule === 'same-speaker' && charById(is.altCharId) ? h('button', { class: 'btn small primary', type: 'button', onclick: () => setSpeaker(is.blockId, is.altCharId) }, `「${charById(is.altCharId).name}」に変える`) : null,
+        is.rule === 'same-speaker' ? h('button', { class: 'btn small', type: 'button', onclick: () => openCharPicker({ title: '話す人物を選ぶ', currentId: b.charId, onPick: (cid) => setSpeaker(is.blockId, cid) }) }, '人物を選ぶ') : null,
         h('button', { class: 'btn small', type: 'button', onclick: () => jumpTo(is) }, '本文へ'),
         h('button', { class: 'btn small ghost', type: 'button', onclick: () => ignoreIssue(is) }, '無視'))));
   }
+}
+
+function setSpeaker(blockId, charId) {
+  const b = S.blocks.find((x) => x.id === blockId);
+  if (!b) return;
+  pushUndo();
+  b.charId = charId;
+  markDirty();
+  toast(`「${charById(charId)?.name}」に変えました`, { label: '元に戻す', fn: () => { undo(); renderCheck(true); } });
+  renderCheck(true);
 }
 
 function fixOne(is) {
@@ -808,16 +821,33 @@ function bindSettings() {
 
   $('#btn-export').addEventListener('click', exportJson);
   $('#btn-export-txt').addEventListener('click', exportText);
+  $('#btn-export-docx').addEventListener('click', exportDocx);
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
   $('#import-file').addEventListener('change', importJson);
 }
 
 function download(filename, text, type) {
-  const blob = new Blob([text], { type });
+  saveFile(filename, text instanceof Blob ? text : new Blob([text], { type }));
+}
+
+// iPhone は共有シートから「ファイルに保存」できるようにし、それ以外は普通にダウンロード
+function saveFile(filename, blob) {
+  if (isIOS() && navigator.canShare) {
+    const file = new File([blob], filename, { type: blob.type });
+    if (navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file] }).catch((e) => { if (e.name !== 'AbortError') downloadBlob(filename, blob); });
+      return;
+    }
+  }
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename, blob) {
   const a = h('a', { href: URL.createObjectURL(blob), download: filename });
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(`「${filename}」を保存しました`);
 }
 
 const fileBase = () => (S.title || '脚本').replace(/[\\/:*?"<>|]/g, '_');
@@ -827,22 +857,14 @@ function exportJson() {
   download(`${fileBase()}.emgeki.json`, JSON.stringify(S, null, 2), 'application/json');
 }
 
-function scriptToText() {
-  const nums = chapterNumbers();
-  const lines = [S.title, S.author, ''];
-  for (const b of S.blocks) {
-    if (b.type === 'dialogue') {
-      const c = charById(b.charId);
-      lines.push(`${c ? c.name : '人物？'}「${b.text.replace(/\n/g, '\n　　')}」`);
-    } else if (b.type === 'chapter') lines.push('', `${chapterLabel(nums.get(b.id), S.settings.chapterFormat)}　${b.text}`.trim(), '');
-    else if (b.type === 'situation') lines.push('', `　　　　${b.text}`);
-    else lines.push(b.text);
-  }
-  return lines.join('\n');
+function exportText() {
+  flush();
+  download(`${fileBase()}.txt`, scriptToText(S), 'text/plain;charset=utf-8');
 }
 
-function exportText() {
-  download(`${fileBase()}.txt`, scriptToText(), 'text/plain;charset=utf-8');
+function exportDocx() {
+  flush();
+  download(`${fileBase()}.docx`, scriptToDocx(S));
 }
 
 function importJson(e) {
@@ -880,7 +902,10 @@ function openScriptList() {
     h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); createScript(); } }, '＋ 新しい脚本'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); duplicateScript(); } }, '複製'),
     h('button', { class: 'btn danger', type: 'button', onclick: () => { closeSheet(); removeScript(); } }, 'この脚本を削除'));
-  openSheet('脚本の一覧', actions, list);
+  const exportRow = h('div', { class: 'row-btns wrap' },
+    h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportText(); } }, 'テキスト（.txt）'),
+    h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportDocx(); } }, 'Word（.docx）'));
+  openSheet('脚本の一覧', actions, h('p', { class: 'sheet-label' }, 'この脚本をファイルに保存'), exportRow, h('p', { class: 'sheet-label' }, '脚本を切り替える'), list);
 }
 
 function openScript(id) {

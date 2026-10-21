@@ -254,6 +254,9 @@ export function runCheck(script, tokenizer = null) {
   const names = script.characters.map((c) => c.name);
   const ignored = new Set(script.ignored);
   const issues = [];
+  let prev = null;
+  let lastSpeaker = null;
+  let lastOther = null; // 直前の話者とは別の、最後に話した人物
   for (const b of script.blocks) {
     let text = b.text;
     const found = textIssues(text, { names });
@@ -267,6 +270,11 @@ export function runCheck(script, tokenizer = null) {
       if (!text.trim()) found.push({ rule: 'empty', level: 'warn', start: 0, end: 0, found: '', message: 'セリフが空です（脱字？）', suggestion: null });
       if (!b.charId || !script.characters.some((c) => c.id === b.charId)) {
         found.push({ rule: 'nochar', level: 'warn', start: 0, end: 0, found: '', message: '話す人物が設定されていません', suggestion: null });
+      }
+      if (prev?.type === 'dialogue' && b.charId && prev.charId === b.charId) {
+        const c = script.characters.find((x) => x.id === b.charId);
+        found.push({ rule: 'same-speaker', level: 'warn', start: 0, end: 0, found: '', altCharId: lastOther,
+          message: `「${c ? c.name : '同じ人物'}」のセリフが2回続いています。違う人物では？` });
       }
       if (text.startsWith('「')) found.push({ rule: 'double-quote', level: 'warn', start: 0, end: 1, found: '「', message: '「」は自動で付きます。先頭の「は不要です', suggestion: '' });
       if (text.endsWith('」') && !text.slice(0, -1).includes('「')) {
@@ -286,6 +294,11 @@ export function runCheck(script, tokenizer = null) {
       if (ignored.has(ignoreKey)) continue;
       issues.push({ ...f, blockId: b.id, ignoreKey, context: context(text, f.start, f.end) });
     }
+    if (b.type === 'dialogue' && b.charId && b.charId !== lastSpeaker) {
+      lastOther = lastSpeaker;
+      lastSpeaker = b.charId;
+    }
+    prev = b;
   }
   const order = { error: 0, warn: 1, info: 2 };
   return issues.sort((a, b) => order[a.level] - order[b.level]);
