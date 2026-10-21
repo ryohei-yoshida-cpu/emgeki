@@ -1015,12 +1015,12 @@ function saveFile(filename, blob) {
   downloadBlob(filename, blob);
 }
 
-function downloadBlob(filename, blob) {
+function downloadBlob(filename, blob, { quiet = false } = {}) {
   const a = h('a', { href: URL.createObjectURL(blob), download: filename });
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  toast(`「${filename}」を保存しました`);
+  if (!quiet) toast(`「${filename}」を保存しました`);
 }
 
 const fileBase = () => (S.title || '脚本').replace(/[\\/:*?"<>|]/g, '_');
@@ -1055,7 +1055,7 @@ function importJson(e) {
     lastIssues = [];
     refreshAll();
     toast(`「${S.title}」を読み込みました`);
-  }).catch(() => toast('読み込めませんでした（このアプリのバックアップファイルを選んでください）'));
+  }).catch(() => toastError('読み込めませんでした（このアプリのバックアップファイルを選んでください）'));
 }
 
 // ============ 脚本の一覧 ============
@@ -1303,27 +1303,131 @@ function showPdfImportResult(r, rec) {
       h('button', { class: 'btn primary', type: 'button', onclick: closeSheet }, '確認する')));
 }
 
-async function openPdfLibrary() {
-  let list;
+// ============ 右上の ⋯ メニュー：共有書き出しと、取り込んだPDF ============
+
+async function openMoreMenu() {
+  flush();
+  let pdfPart = [];
   try {
-    list = await listPdfs();
+    pdfPart = await pdfLibraryContent();
   } catch {
-    toastError('保存したPDFを読み込めませんでした');
-    return;
+    pdfPart = [h('p', { class: 'note' }, '保存したPDFを読み込めませんでした。')];
   }
+  openSheet('メニュー',
+    h('button', { class: 'mode-card share-card', type: 'button', onclick: openShareSheet },
+      h('b', {}, '共有書き出し（LINE・ドライブ保存）'),
+      h('span', {}, 'この脚本をファイルにして、LINE で送ったり、Google ドライブ・MEGA などの好きな場所に保存したりできます。')),
+    h('p', { class: 'sheet-label' }, '取り込んだPDF'),
+    ...pdfPart);
+}
+
+const SHARE_FORMATS = {
+  backup: { label: 'このアプリのデータ（おすすめ）', desc: '相手もこのアプリの「設定 → バックアップを読み込む」で、そのまま開いて続きを書けます。', ext: '.emgeki.json', mime: 'application/json' },
+  docx: { label: 'Word（.docx）', desc: 'Word・Google ドキュメントなどで読めます。表紙・配役表・ルビ入り。', ext: '.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  txt: { label: 'テキスト（.txt）', desc: 'どの端末でも開けるいちばん軽い形式です。', ext: '.txt', mime: 'text/plain' },
+};
+
+// 選んだ形式のファイルを作る（共有シートはタップの直後に開く必要があるので、ここは同期処理）
+function makeShareFile(format) {
+  const f = SHARE_FORMATS[format];
+  let blob;
+  if (format === 'backup') blob = new Blob([JSON.stringify(S, null, 2)], { type: f.mime });
+  else if (format === 'docx') blob = scriptToDocx(S);
+  else blob = new Blob([scriptToText(S)], { type: 'text/plain;charset=utf-8' });
+  return new File([blob], `${fileBase()}${f.ext}`, { type: f.mime });
+}
+
+function canShareFiles() {
+  try {
+    return !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] }));
+  } catch { return false; }
+}
+
+function openShareSheet() {
+  flush();
+  let format = 'backup';
+  const radios = Object.entries(SHARE_FORMATS).map(([key, f]) => h('label', { class: 'format-row' },
+    h('input', { type: 'radio', name: 'share-format', value: key, checked: key === format, onchange: () => { format = key; } }),
+    h('span', {}, h('b', {}, f.label), h('small', {}, f.desc))));
+
+  const shareBtn = canShareFiles()
+    ? h('button', { class: 'btn primary', type: 'button', onclick: () => shareScriptFile(makeShareFile(format)) }, '共有する（LINE・ドライブなど）')
+    : null;
+  const saveBtn = h('button', { class: 'btn', type: 'button', onclick: () => saveScriptFileAs(makeShareFile(format)) },
+    window.showSaveFilePicker ? '保存先を選んで保存' : '端末に保存');
+
+  openSheet('共有書き出し',
+    h('p', { class: 'sheet-label' }, '形式'),
+    h('div', { class: 'format-list' }, radios),
+    h('div', { class: 'row-btns wrap' }, shareBtn, saveBtn),
+    h('p', { class: 'note' },
+      shareBtn
+        ? '「共有する」を押すと共有メニューが開きます。LINE を選ぶとトークに送れ、ドライブ・MEGA・「ファイルに保存」などを選ぶと保存先のフォルダを指定できます（出てくる先は、端末に入っているアプリによります）。'
+        : 'この端末のブラウザは共有メニューに対応していないため、ファイルとして保存します。保存したファイルを LINE やドライブで送ってください。'));
+}
+
+async function shareScriptFile(file) {
+  // Android の Chrome などは共有できるファイルの種類が限られるので、送れる形に替える
+  if (!navigator.canShare({ files: [file] })) {
+    const asText = new File([file], file.name.replace(/\.json$/, '.txt'), { type: 'text/plain' });
+    if (file.name.endsWith('.json') && navigator.canShare({ files: [asText] })) {
+      file = asText;
+    } else {
+      closeSheet();
+      toastError('この形式は共有メニューで送れないため、端末に保存しました');
+      downloadBlob(file.name, file, { quiet: true });
+      return;
+    }
+  }
+  try {
+    await navigator.share({ files: [file], title: S.title || '脚本' });
+    closeSheet();
+    toast('共有しました');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // 共有メニューを閉じただけ
+    closeSheet();
+    toastError('共有できなかったため、端末に保存しました');
+    downloadBlob(file.name, file, { quiet: true });
+  }
+}
+
+// 保存先を選べる環境（パソコンの Chrome・Edge など）では保存ダイアログを出す。ほかは通常のダウンロード
+async function saveScriptFileAs(file) {
+  if (!window.showSaveFilePicker) { closeSheet(); downloadBlob(file.name, file); return; }
+  const ext = file.name.slice(file.name.indexOf('.'));
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: file.name,
+      types: [{ description: '脚本ファイル', accept: { [file.type]: [ext.endsWith('.json') ? '.json' : ext] } }],
+    });
+    const w = await handle.createWritable();
+    await w.write(file);
+    await w.close();
+    closeSheet();
+    toast(`「${handle.name}」に保存しました`);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    closeSheet();
+    downloadBlob(file.name, file);
+  }
+}
+
+async function pdfLibraryContent() {
+  const list = await listPdfs();
   const mine = list.filter((p) => p.id === S.sourcePdfId || p.scriptId === S.id);
   const others = list.filter((p) => !mine.includes(p));
   const ul = (items) => h('ul', { class: 'menu-list' }, items.map((p) => h('li', {}, h('button', {
     type: 'button',
     onclick: () => { closeSheet(); openPdfViewer(p.id); },
   }, p.name, h('span', { class: 'sub' }, `${p.pages}ページ・${formatDate(p.addedAt)}`)))));
-  openSheet('取り込んだPDF',
-    mine.length ? h('p', { class: 'sheet-label' }, 'この脚本の元のPDF') : null,
+  return [
+    mine.length ? h('p', { class: 'note' }, 'この脚本の元のPDF') : null,
     mine.length ? ul(mine) : null,
-    others.length ? h('p', { class: 'sheet-label' }, mine.length ? 'そのほかのPDF' : '保存したPDF') : null,
+    others.length && mine.length ? h('p', { class: 'note' }, 'そのほかのPDF') : null,
     others.length ? ul(others) : null,
     list.length ? null : h('p', { class: 'note' }, 'まだPDFはありません。下のボタンから過去の脚本のPDFを読み込めます。'),
-    h('div', { class: 'row-btns' }, h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFを読み込む')));
+    h('div', { class: 'row-btns' }, h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFを読み込む')),
+  ].filter(Boolean);
 }
 
 // ---- PDF ビューア ----
@@ -1501,7 +1605,7 @@ function init() {
   $('#title-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) e.target.blur(); });
   $('#btn-undo').addEventListener('click', undo);
   $('#btn-install').addEventListener('click', installApp);
-  $('#btn-more').addEventListener('click', openPdfLibrary);
+  $('#btn-more').addEventListener('click', openMoreMenu);
   $('#btn-import-pdf').addEventListener('click', openPdfImportChooser);
   $('#pdf-file').addEventListener('change', onPdfChosen);
   $('#pdf-close').addEventListener('click', () => closePdfViewer());

@@ -31,7 +31,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
     </button>
     <span id="save-status" class="save-status" aria-live="polite">保存済み</span>
-    <button id="btn-more" class="icon-btn" type="button" aria-label="取り込んだPDFを見る">
+    <button id="btn-more" class="icon-btn" type="button" aria-label="メニュー（共有書き出し・取り込んだPDF）">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></svg>
     </button>
   </header>
@@ -191,7 +191,7 @@
           <button id="btn-export-txt" class="btn" type="button">テキスト（.txt）で保存</button>
           <button id="btn-export-docx" class="btn" type="button">Word（.docx）で保存</button>
         </div>
-        <input id="import-file" type="file" accept=".json,application/json" hidden>
+        <input id="import-file" type="file" accept=".json,.txt,application/json,text/plain" hidden>
         <div class="row-btns wrap">
           <button id="btn-import-pdf" class="btn" type="button">過去の脚本をPDFから読み込む</button>
         </div>
