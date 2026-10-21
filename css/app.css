@@ -296,6 +296,11 @@ body.kb-open .tabbar { display: none; }
 .tabbar button.active { color: var(--accent); }
 .tabbar svg { width: 22px; height: 22px; }
 
+/* パソコンなど横に広い画面では、下のボタンを本文と同じ幅にそろえる */
+@media (min-width: 800px) {
+  .insertbar, .tabbar { padding-left: calc((100% - 760px) / 2); padding-right: calc((100% - 760px) / 2); }
+}
+
 /* ---------- カード ---------- */
 .add-row { display: flex; gap: 8px; }
 .add-row input { flex: 1; min-width: 0; }
