@@ -22,7 +22,8 @@ export const DEFAULT_SETTINGS = {
   memoArea: 'none',            // 演者のメモ欄：none | small | medium | large
   memoPosition: 'top',         // top | bottom | left | right
   memoRuled: true,             // メモ欄に罫線
-  actingNotes: false,          // セリフの下に「演技の指示」を付ける
+  actingNotes: false,          // 印刷に「演技の指示」スペースを付ける
+  editorWritingMode: 'horizontal', // 書く画面：horizontal | vertical
 };
 
 export const CHAR_COLORS = ['#c0392b', '#2471a3', '#1e8449', '#b9770e', '#7d3c98', '#117a65', '#a04000', '#5d6d7e'];

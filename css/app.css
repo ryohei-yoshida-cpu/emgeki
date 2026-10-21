@@ -219,6 +219,30 @@ body.view-editor .view[data-view="editor"] { padding-bottom: calc(var(--tabbar-h
 .blk-chapter .chap-label { flex: none; font-weight: 700; font-size: 17px; line-height: 1.75; color: var(--accent); }
 .blk-chapter input.blk-text { flex: 0 1 11em; font-weight: 700; }
 
+/* 縦書きの脚本画面：右から左へ進み、横スクロール */
+.editor.vertical {
+  writing-mode: vertical-rl;
+  height: calc(100dvh - var(--topbar-h) - env(safe-area-inset-top, 0px) - var(--tabbar-h) - var(--insert-h) - var(--safe-b) - 20px);
+  overflow-x: auto; overflow-y: hidden;
+  padding: 12px 12px 12px 8px;
+}
+body.kb-open .editor.vertical { height: calc(100dvh - var(--topbar-h) - env(safe-area-inset-top, 0px) - var(--insert-h) - var(--kb) - 20px); }
+body.view-editor.ed-vertical .view[data-view="editor"] { padding-bottom: calc(var(--tabbar-h) + var(--insert-h) + var(--safe-b)); }
+.editor:empty { display: none; }
+.editor.vertical .blk { padding: 6px 4px 36px; margin: 0 2px; scroll-margin: 0 48px; }
+.editor.vertical .blk textarea, .editor.vertical .blk input.blk-text { min-height: 0; min-width: 1.75em; }
+.editor.vertical .blk-more { right: 50%; transform: translateX(50%); top: auto; bottom: 2px; writing-mode: horizontal-tb; }
+.editor.vertical .blk-name { border-bottom: 0; border-left: 2px solid color-mix(in srgb, var(--c, var(--muted)) 35%, transparent); padding: 1px 0; }
+.editor.vertical .blk textarea.blk-note {
+  margin: 2.2em 0 0 0; padding: 8px 2px 0 0;
+  border-left: 0; border-top: 2px solid color-mix(in srgb, var(--c, var(--muted)) 45%, transparent);
+}
+.editor.vertical .blk-direction { padding-left: 4px; padding-top: calc(6px + var(--indent, 0) * 17px); }
+.editor.vertical .blk-direction::before { margin: 0 0 6px 0; writing-mode: horizontal-tb; }
+.editor.vertical .blk-situation { margin-top: 0; margin-right: 1.75em; }
+.editor.vertical .blk-situation::before { top: 50%; left: auto; right: -1.5em; transform: translateY(-50%); }
+.editor.vertical .blk-chapter { justify-content: flex-start; margin: 0 18px 0 0; padding: 6px 10px 36px 4px; border-top: 0; border-right: 1px solid var(--line); }
+
 /* ---------- 挿入バー ---------- */
 .insertbar {
   position: fixed; left: 0; right: 0; z-index: 25;
@@ -414,7 +438,14 @@ body.kb-open .tabbar { display: none; }
 .memo-left { border-right: 1px solid #555; }
 .memo-right { border-left: 1px solid #555; }
 .memo-label { position: absolute; top: 1.5mm; left: 2mm; font-size: 7pt; color: #888; writing-mode: horizontal-tb; letter-spacing: .1em; }
-.p-note { font-size: .85em; color: #444; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-band { position: absolute; }
+.rule-v { position: absolute; top: 0; bottom: 0; border-left: 0.5px solid #bbb; }
+.rule-h { position: absolute; left: 0; right: 0; border-top: 0.5px solid #bbb; }
+.band-bottom { border-top: 1px solid #555; }
+.band-right { border-left: 1px solid #555; }
+.note-band .memo-label { left: auto; right: 2mm; }
+.p-band-note { position: absolute; font-size: .85em; line-height: 1.5; color: #333; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+.page.vertical .p-band-note { writing-mode: vertical-rl; }
 .p-dlg { display: flex; align-items: flex-start; }
 .p-name { flex: none; font-weight: 700; }
 .p-name ruby rt { font-weight: 400; }

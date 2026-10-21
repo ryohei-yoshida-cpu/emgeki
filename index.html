@@ -118,7 +118,13 @@
         <label class="field">タイトル<input id="set-title" type="text"></label>
         <label class="field">作者<input id="set-author" type="text" placeholder="作・〇〇"></label>
 
-        <h2>書式</h2>
+        <h2>脚本画面（書くとき）</h2>
+        <label class="field">書く向き
+          <select data-setting="editorWritingMode"><option value="horizontal">横書き</option><option value="vertical">縦書き</option></select>
+        </label>
+        <p class="note">台本に合わせて縦書きで書けます。縦書きでは右から左へ進み、横にスクロールします。印刷の向き（下の「書式」）とは別に選べます。</p>
+
+        <h2>書式（印刷・PDF）</h2>
         <label class="field">書字方向
           <select data-setting="writingMode"><option value="vertical">縦書き</option><option value="horizontal">横書き</option></select>
         </label>
@@ -166,9 +172,10 @@
           </select>
         </label>
         <label class="switch-row"><input type="checkbox" data-setting="memoRuled"> メモ欄に罫線を引く</label>
-        <p class="note">メモ欄と本文の間には区切りの線が入ります。台本の本文ページにだけ付きます（表紙・配役表には付きません）。</p>
-        <label class="switch-row"><input type="checkbox" data-setting="actingNotes"> セリフの下に「演技の指示」を付ける</label>
-        <p class="note">オンにすると、脚本画面の各セリフの下に「演技の指示」の欄が出ます（例：怒りをこらえて）。印刷やWordでは、セリフの下に（ ）付きの小さな字で入ります。</p>
+        <p class="note">メモ欄は<b>印刷するページ（「印刷」タブ・PDF）に付きます</b>。書く画面には出ません。本文との間には区切りの線が入ります（表紙・配役表には付きません）。</p>
+        <label class="switch-row"><input type="checkbox" data-setting="actingNotes"> 「演技の指示」スペースを付ける</label>
+        <p class="note">ページの下 約1/5（横書きでは右側）を演技の指示のスペースにし、メモ欄と同じ罫線を引きます。各セリフの指示は、そのセリフと同じ列に入ります。指示は、脚本画面でセリフ右の「⋯」→「演技の指示を追加」で書けます。</p>
+        <button class="btn" type="button" data-go-preview>印刷のプレビューで確認する</button>
 
         <h2>印刷</h2>
         <label class="switch-row"><input type="checkbox" data-setting="printTitlePage"> 表紙を付ける</label>

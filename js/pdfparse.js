@@ -64,21 +64,27 @@ export function pageToLines(items, pageWidth, pageHeight, vertical) {
     else groups.push({ key: keyOf(g), items: [g] });
   }
 
-  const lines = groups.map((grp) => {
-    // 行内の並び：縦は上から（y が大きい順）、横は左から
+  // 行内の並び：縦は上から（y が大きい順）、横は左から。
+  // 大きく離れた部分（演技の指示スペースなど）は別の行として切り出す
+  const lines = groups.flatMap((grp) => {
     const its = grp.items.sort((a, b) => (vertical ? b.y - a.y : a.x - b.x));
-    let text = '';
-    let prevEnd = null;
+    const segs = [];
+    let seg = null;
     for (const g of its) {
       const start = vertical ? pageHeight - g.y : g.x;
       const len = vertical ? g.size * [...g.str].length : (g.w || g.size * [...g.str].length);
-      if (prevEnd != null && start - prevEnd > base * 0.8) text += '　'.repeat(Math.max(1, Math.round((start - prevEnd) / base)));
-      text += g.str;
-      prevEnd = start + len;
+      if (seg && start - seg.end > base * 4) seg = null;
+      if (!seg) {
+        seg = { text: '', start, end: start, sizes: [], afterGap: segs.length > 0 };
+        segs.push(seg);
+      } else if (start - seg.end > base * 0.8) {
+        seg.text += '　'.repeat(Math.max(1, Math.round((start - seg.end) / base)));
+      }
+      seg.text += g.str;
+      seg.end = start + len;
+      seg.sizes.push(g.size);
     }
-    const first = its[0];
-    const start = vertical ? pageHeight - first.y : first.x;
-    return { text: text.replace(/\s+$/, ''), start, end: prevEnd, size: median(its.map((g) => g.size)) };
+    return segs.map(({ sizes, ...s }) => ({ ...s, text: s.text.replace(/\s+$/, ''), size: median(sizes) }));
   }).filter((l) => l.text.trim());
 
   return { lines: [...lines, ...extra], vertical, pageWidth, pageHeight };
@@ -102,12 +108,12 @@ export function parsePages(pages) {
   const all = [];
   pages.forEach((p, pi) => {
     // ページの本文の左右（上下）端
-    const longLines = p.lines.filter((l) => [...l.text].length > 6);
+    const longLines = p.lines.filter((l) => [...l.text].length > 6 && !l.afterGap);
     const minStart = Math.min(...(longLines.length ? longLines : p.lines).map((l) => l.start));
     const maxEnd = Math.max(...(longLines.length ? longLines : p.lines).map((l) => l.end));
     for (const l of p.lines) {
       const t = l.text.trim();
-      if (PAGE_NUM_RE.test(t) || /^[\-－–—ー\s]+$/.test(t) || t === 'メモ') continue;
+      if (PAGE_NUM_RE.test(t) || /^[\-－–—ー\s]+$/.test(t) || t === 'メモ' || t === '演技の指示') continue;
       all.push({ ...l, text: t, page: pi, minStart, maxEnd });
     }
   });
@@ -160,6 +166,8 @@ export function parsePages(pages) {
   const castNames = new Set(cast.map((c) => c.name));
   const okName = (k, name) => castNames.has(name)
     || (k === 'A' && (counts.A.get(name) || 0) >= 2)
+    // 「名前「」の形は、ひらがなだけでない短い名前なら1回でも採用（「そして「…」のような誤検出を避ける）
+    || (k === 'A' && name.length <= 6 && !/^[ぁ-ゖー]+$/.test(name))
     || (k === 'B' && (counts.B.get(name) || 0) >= 2)
     || (k === 'C' && (counts.C.get(name) || 0) >= 3);
 
@@ -174,6 +182,7 @@ export function parsePages(pages) {
   const blocks = [];
   const names = new Map(); // name -> 登場順
   let cur = null;           // 続きを受け付けているセリフ
+  let noteLine = null;      // 演技の指示スペースに書かれた、直前の指示の行
   let lastDir = null;       // 折り返しで続いているかもしれないト書き
 
   const isCentered = (l) => {
@@ -189,6 +198,21 @@ export function parsePages(pages) {
     const l = all[i];
     const text = l.text;
 
+    // 演技の指示スペース（行の終わり側に離れて書かれた部分）
+    const inBand = l.maxEnd > l.minStart && (l.start - l.minStart) / (l.maxEnd - l.minStart) > 0.6;
+    if (l.afterGap && cur && !cur.block.note) {
+      cur.block.note = text;
+      noteLine = l;
+      report.notes++;
+      continue;
+    }
+    if (noteLine && cur && inBand && Math.abs(l.start - noteLine.start) < l.size * 1.5) {
+      cur.block.note += text;
+      noteLine = l;
+      continue;
+    }
+    if (l.afterGap && inBand) continue; // どのセリフの指示か分からないものは読み飛ばす
+
     const ch = text.match(CHAPTER_RE);
     if (ch && text.length <= 30) {
       blocks.push({ type: 'chapter', text: ch[3].trim() });
@@ -203,6 +227,7 @@ export function parsePages(pages) {
       let body = sp.rest;
       let open = sp.kind === 'A';
       if (open && /」\s*$/.test(body)) { body = body.replace(/」\s*$/, ''); open = false; }
+      noteLine = null;
       cur = { block: { type: 'dialogue', name: sp.name, text: body, note: '' }, open, kind: sp.kind,
         textStart: l.start + sp.prefixLen * l.size, lastLine: l };
       blocks.push(cur.block);

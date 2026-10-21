@@ -17,6 +17,7 @@ let undoStack = [];
 let dirty = false;
 let saveTimer = null;
 let lastIssues = [];
+let noteEditingId = null; // 指示を追加したばかりで、まだ空のセリフ
 
 const charById = (id) => S.characters.find((c) => c.id === id);
 const blockIndex = (id) => S.blocks.findIndex((b) => b.id === id);
@@ -157,7 +158,7 @@ function blockEl(b, chapNums) {
         h('span', { class: 'q' }, '「'),
         textArea(b, 'セリフ'),
         h('span', { class: 'q q-end' }, '」'),
-        S.settings.actingNotes ? h('textarea', { class: 'blk-note', rows: 1, placeholder: '演技の指示（例：怒りをこらえて）', value: b.note || '', 'aria-label': '演技の指示' }) : null,
+        b.note || noteEditingId === b.id ? h('textarea', { class: 'blk-note', rows: 1, placeholder: '演技の指示（例：怒りをこらえて）', value: b.note || '', 'aria-label': '演技の指示' }) : null,
         more);
     }
     case 'direction':
@@ -176,12 +177,20 @@ function blockEl(b, chapNums) {
 const supportsFieldSizing = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('field-sizing', 'content');
 function autosize(ta) {
   if (supportsFieldSizing || ta.tagName !== 'TEXTAREA') return;
-  ta.style.height = 'auto';
-  ta.style.height = `${ta.scrollHeight}px`;
+  if (ta.closest('.editor.vertical')) {
+    ta.style.width = '0';
+    ta.style.width = `${ta.scrollWidth}px`;
+  } else {
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  }
 }
 
 function renderEditor() {
   const ed = $('#editor');
+  const vertical = S.settings.editorWritingMode === 'vertical';
+  ed.classList.toggle('vertical', vertical);
+  document.body.classList.toggle('ed-vertical', vertical);
   const chapNums = chapterNumbers();
   ed.innerHTML = '';
   for (const b of S.blocks) ed.append(blockEl(b, chapNums));
@@ -313,6 +322,14 @@ function openBlockMenu(id) {
   };
   const list = h('ul', { class: 'menu-list' },
     b.type === 'dialogue' ? item('話す人物を変える', () => changeChar(b.id)) : null,
+    b.type === 'dialogue' && !b.note ? item('演技の指示を追加', () => addNote(b.id), '', '例：怒りをこらえて') : null,
+    b.type === 'dialogue' && b.note ? item('演技の指示を消す', () => {
+      pushUndo();
+      b.note = '';
+      markDirty();
+      renderEditor();
+      toast('演技の指示を消しました', { label: '元に戻す', fn: undo });
+    }) : null,
     b.type !== 'dialogue' ? item('セリフにする', toType('dialogue')) : null,
     b.type !== 'direction' ? item('ト書きにする', toType('direction')) : null,
     b.type !== 'situation' ? item('シチュエーションにする', toType('situation')) : null,
@@ -332,6 +349,21 @@ function openBlockMenu(id) {
       toast('削除しました', { label: '元に戻す', fn: undo });
     }, 'danger'));
   openSheet('段落', list);
+}
+
+function addNote(id) {
+  noteEditingId = id;
+  if (!S.settings.actingNotes) {
+    S.settings.actingNotes = true;
+    markDirty();
+    toast('印刷に「演技の指示」のスペースを付けました（設定で変えられます）');
+  }
+  renderEditor();
+  const ta = $(`#editor [data-id="${id}"] .blk-note`);
+  if (ta) {
+    ta.focus({ preventScroll: true });
+    ta.closest('.blk').scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }
 }
 
 function changeChar(id) {
@@ -364,6 +396,15 @@ function bindEditor() {
   ed.addEventListener('focusin', (e) => {
     const blk = e.target.closest('.blk');
     if (blk) currentBlockId = blk.dataset.id;
+  });
+  // 空のまま離れた指示欄はしまう
+  ed.addEventListener('focusout', (e) => {
+    const note = e.target.closest('.blk-note');
+    if (!note || note.value.trim()) return;
+    const b = S.blocks.find((x) => x.id === note.closest('.blk').dataset.id);
+    if (b) b.note = '';
+    if (noteEditingId === b?.id) noteEditingId = null;
+    setTimeout(() => note.remove(), 0);
   });
   ed.addEventListener('keydown', (e) => {
     const field = e.target.closest('.blk-text');
@@ -817,6 +858,7 @@ function bindSettings() {
     markDirty();
     syncSettingInputs();
     if (key === 'font') { applyEditorFont(); updateFontSample(); }
+    if (key === 'editorWritingMode') toast(v === 'vertical' ? '脚本画面を縦書きにしました' : '脚本画面を横書きにしました');
     if (key === 'autoReading' && v) S.characters.filter((c) => c.readingAuto && !c.reading).forEach((c) => autoReading(c));
   });
 
@@ -830,6 +872,7 @@ function bindSettings() {
   }));
 
   $('#btn-export').addEventListener('click', exportJson);
+  $$('[data-go-preview]').forEach((b) => b.addEventListener('click', () => setView('preview')));
   $('#btn-export-txt').addEventListener('click', exportText);
   $('#btn-export-docx').addEventListener('click', exportDocx);
   $('#btn-import').addEventListener('click', () => $('#import-file').click());

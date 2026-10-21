@@ -157,7 +157,7 @@ export function scriptToDocx(script) {
   const [w, h] = st.orientation === 'landscape' ? [16838, 11906] : [11906, 16838];
   // 演者のメモ欄：その側の余白を広げ、本文との境にページ罫線を1本引く（表紙には付けない）
   const TW = 56.7; // 1mm の twip
-  const { body: box, memo, pos } = pageLayout(st);
+  const { body: box, memo, pos } = pageLayout({ ...st, actingNotes: false }); // Word では指示は（ ）でセリフの下に入れる
   const mar = { top: Math.round(box.top * TW), bottom: Math.round(box.bottom * TW), left: Math.round(box.left * TW), right: Math.round(box.right * TW) };
   const borders = memo
     ? `<w:pgBorders w:offsetFrom="text"${st.printTitlePage ? ' w:display="notFirstPage"' : ''}><w:${pos} w:val="single" w:sz="6" w:space="12" w:color="555555"/></w:pgBorders>`

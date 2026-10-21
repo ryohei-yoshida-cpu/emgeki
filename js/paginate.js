@@ -8,13 +8,32 @@ const MM = 96 / 25.4; // 1mm の CSS px
 export const MEMO_FRACTION = { none: 0, small: 0.25, medium: 0.33, large: 0.45 };
 const MEMO_GAP_MM = 5;   // メモ欄と本文のすき間
 const RULE_MM = 8;       // 罫線の間隔
+const NOTE_BAND = 0.2;   // 演技の指示スペース：行の長さの約1/5
 
 // 本文の枠とメモ欄の枠（どちらも用紙の端からの距離 mm）
 export function pageLayout(st) {
   const [pw, ph] = PAGE_MM[st.orientation] || PAGE_MM.portrait;
   const body = { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
   const frac = MEMO_FRACTION[st.memoArea] || 0;
-  if (!frac) return { body, memo: null };
+  let memo = null, pos = null, size = 0;
+  if (frac) ({ memo, pos, size } = carveMemo(st, body, frac, pw, ph));
+  // 演技の指示スペースは行の終わり側（縦書きなら下、横書きなら右）
+  let band = null;
+  if (st.actingNotes) {
+    if (st.writingMode === 'vertical') {
+      const len = (ph - body.top - body.bottom) * NOTE_BAND;
+      band = { ...body, top: ph - body.bottom - len };
+      body.bottom += len + MEMO_GAP_MM;
+    } else {
+      const len = (pw - body.left - body.right) * NOTE_BAND;
+      band = { ...body, left: pw - body.right - len };
+      body.right += len + MEMO_GAP_MM;
+    }
+  }
+  return { body, memo, pos, size, band, pw, ph };
+}
+
+function carveMemo(st, body, frac, pw, ph) {
   const memo = { ...body };
   const pos = st.memoPosition || 'top';
   const across = pos === 'top' || pos === 'bottom'
@@ -25,7 +44,7 @@ export function pageLayout(st) {
   if (pos === 'bottom') { memo.top = ph - body.bottom - size; body.bottom += size + MEMO_GAP_MM; }
   if (pos === 'left') { memo.right = pw - body.left - size; body.left += size + MEMO_GAP_MM; }
   if (pos === 'right') { memo.left = pw - body.right - size; body.right += size + MEMO_GAP_MM; }
-  return { body, memo, pos, size };
+  return { memo, pos, size };
 }
 
 export function pageSizePx(orientation) {
@@ -76,15 +95,27 @@ export function renderPages(script, host) {
     });
     page.style.setProperty('--indent', String(st.directionIndent || 0));
     page.style.setProperty('--lh', String(st.lineHeight));
-    const box = withMemo && layout.memo ? layout.body : { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
+    const box = withMemo ? layout.body : { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
     const inset = (b) => ({ top: `${b.top}mm`, bottom: `${b.bottom}mm`, left: `${b.left}mm`, right: `${b.right}mm` });
+    // 罫線は書く向きに合わせる（縦書きなら縦線、横書きなら横線）。
+    // 背景画像は印刷で省かれることがあるので、線は要素の枠線で描く
+    const rules = (area) => {
+      if (!st.memoRuled) return [];
+      const [pw, ph] = PAGE_MM[st.orientation] || PAGE_MM.portrait;
+      const extent = vertical ? pw - area.left - area.right : ph - area.top - area.bottom;
+      const lines = [];
+      for (let d = RULE_MM; d < extent - 1; d += RULE_MM) {
+        lines.push(h('div', { class: vertical ? 'rule-v' : 'rule-h', style: vertical ? { right: `${d}mm` } : { top: `${d}mm` } }));
+      }
+      return lines;
+    };
     if (withMemo && layout.memo) {
-      // 罫線は書く向きに合わせる（縦書きなら縦線、横書きなら横線）
-      const ruled = st.memoRuled
-        ? `repeating-linear-gradient(${vertical ? 'to left' : 'to bottom'}, transparent 0 calc(${RULE_MM}mm - 0.6px), #c8c8c8 calc(${RULE_MM}mm - 0.6px) ${RULE_MM}mm)`
-        : 'none';
-      page.append(h('div', { class: `memo-area memo-${layout.pos}`, style: { ...inset(layout.memo), backgroundImage: ruled } },
-        h('span', { class: 'memo-label' }, 'メモ')));
+      page.append(h('div', { class: `memo-area memo-${layout.pos}`, style: inset(layout.memo) },
+        rules(layout.memo), h('span', { class: 'memo-label' }, 'メモ')));
+    }
+    if (withMemo && layout.band) {
+      page.append(h('div', { class: `note-band ${vertical ? 'band-bottom' : 'band-right'}`, style: inset(layout.band) },
+        rules(layout.band), h('span', { class: 'memo-label' }, '演技の指示')));
     }
     const body = h('div', { class: 'page-body', style: inset(box) });
     page.append(body);
@@ -147,8 +178,6 @@ export function renderPages(script, host) {
         return h('div', { class: 'p-dir' + (head ? '' : ' cont') }, text);
       case 'situation':
         return h('div', { class: 'p-sit' + (head ? '' : ' cont') }, text);
-      case 'note':
-        return h('div', { class: 'p-note', style: { paddingInlineStart: `${block.indent}em` } }, `（${text}）`);
       case 'chapter':
         return h('div', { class: 'p-chap' },
           numberNodes(chapterLabel(chapterNo, st.chapterFormat), vertical),
@@ -158,17 +187,29 @@ export function renderPages(script, host) {
     }
   }
 
-  // 演技の指示はセリフの直後に置く小さな段落として扱う
-  const items = [];
-  for (const b of script.blocks) {
-    items.push(b);
-    if (b.type === 'dialogue' && st.actingNotes && b.note && b.note.trim()) {
-      const c = chars.get(b.charId);
-      items.push({ type: 'note', text: b.note.trim(), indent: (c ? c.name.length : 6) + 1 });
+  // 演技の指示：そのセリフと同じ高さ（縦書きなら同じ列）の指示スペースに置く。前の指示と重なるときはずらす
+  function placeNote(anchor, text) {
+    const page = anchor.closest('.page');
+    const pr = page.getBoundingClientRect();
+    const ar = anchor.getBoundingClientRect();
+    const b = layout.band;
+    const el = h('div', { class: 'p-band-note' }, text);
+    if (vertical) {
+      let right = pr.right - ar.right;
+      if (page._noteEdge != null) right = Math.max(right, page._noteEdge);
+      Object.assign(el.style, { right: `${right}px`, top: `${b.top * MM + 2}px`, height: `${(size.h - b.top * MM - b.bottom * MM) - 4}px` });
+      page.append(el);
+      page._noteEdge = pr.right - el.getBoundingClientRect().left + 2;
+    } else {
+      let top = ar.top - pr.top;
+      if (page._noteEdge != null) top = Math.max(top, page._noteEdge);
+      Object.assign(el.style, { top: `${top}px`, left: `${b.left * MM + 4}px`, width: `${(size.w - b.left * MM - b.right * MM) - 6}px` });
+      page.append(el);
+      page._noteEdge = el.getBoundingClientRect().bottom - pr.top + 2;
     }
   }
 
-  for (const block of items) {
+  for (const block of script.blocks) {
     if (block.type === 'chapter') {
       chapterNo++;
       if (st.chapterPageBreak && body && body.children.length) body = null;
@@ -180,14 +221,18 @@ export function renderPages(script, host) {
       ruby = st.ruby === 'all' || (st.ruby === 'first' && !seen.has(block.charId));
       seen.add(block.charId);
     }
-    const splittable = block.type !== 'chapter' && block.type !== 'note';
+    const splittable = block.type !== 'chapter';
+    const note = block.type === 'dialogue' && layout.band && block.note ? block.note.trim() : '';
     let text = block.text;
     let head = true;
 
     for (;;) {
       const el = makeEl(block, text, head, true, ruby && head);
       body.append(el);
-      if (fits(body, el)) break;
+      if (fits(body, el)) {
+        if (head && note) placeNote(el, note);
+        break;
+      }
       el.remove();
 
       if (splittable && text.length > 1) {
@@ -203,14 +248,20 @@ export function renderPages(script, host) {
         }
         while (best > 1 && NO_LINE_START.includes(text[best])) best--;
         if (best > 0) {
-          body.append(makeEl(block, text.slice(0, best), head, false, ruby && head));
+          const part = makeEl(block, text.slice(0, best), head, false, ruby && head);
+          body.append(part);
+          if (head && note) placeNote(part, note);
           text = text.slice(best).replace(/^\n/, '');
           head = false;
           body = newPage(true);
           continue;
         }
       }
-      if (!body.children.length) { body.append(el); break; } // 1ページに収まらない要素はそのまま置く
+      if (!body.children.length) { // 1ページに収まらない要素はそのまま置く
+        body.append(el);
+        if (head && note) placeNote(el, note);
+        break;
+      }
       body = newPage(true);
     }
   }
