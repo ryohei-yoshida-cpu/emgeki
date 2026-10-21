@@ -8,6 +8,7 @@ import { scriptToText, scriptToDocx } from './export.js';
 import { savePdf, getPdf, deletePdf, listPdfs } from './pdfstore.js';
 import { openPdf, extractPages } from './pdfjs.js';
 import { parsePages } from './pdfparse.js';
+import { ALL_ID, GROUP_KINDS, speakerIds, setSpeakers, speakersOf, speakerLabel, inCastList } from './speakers.js';
 import { $, $$, h, uid, hasKanji, chapterLabel, countOccurrences, formatDate, safeStorage } from './util.js';
 
 let S = null;            // 編集中の脚本
@@ -17,7 +18,7 @@ let undoStack = [];
 let dirty = false;
 let saveTimer = null;
 let lastIssues = [];
-let noteEditingId = null; // 指示を追加したばかりで、まだ空のセリフ
+let extraEditing = null; // メモ・指示を追加したばかりで、まだ空の欄 { id, kind }
 
 const charById = (id) => S.characters.find((c) => c.id === id);
 const blockIndex = (id) => S.blocks.findIndex((b) => b.id === id);
@@ -144,6 +145,30 @@ function nameContent(c) {
   return c.name;
 }
 
+const charMap = () => new Map(S.characters.map((c) => [c.id, c]));
+
+// セリフの話者の表示（複数なら「・」でつなぐ）
+function speakerContent(b) {
+  const list = speakersOf(b, charMap());
+  if (!list.length) return ['人物？'];
+  return list.flatMap((sp, i) => [i ? '・' : null, sp.c ? nameContent(sp.c) : sp.name]).filter(Boolean);
+}
+
+// メモ・演技の指示の欄（中身があるか、追加したばかりのときだけ出す）
+const EXTRA = {
+  memo: { label: 'メモ', placeholder: 'メモ（例：ここで客席を見る）' },
+  note: { label: '指示', placeholder: '演技の指示（例：怒りをこらえて／スポットライトで照らす）' },
+};
+function extraFields(b) {
+  return ['memo', 'note'].map((kind) => {
+    const editing = extraEditing && extraEditing.id === b.id && extraEditing.kind === kind;
+    if (!b[kind] && !editing) return null;
+    return h('div', { class: `blk-sub sub-${kind}` },
+      h('span', { class: 'sub-label' }, EXTRA[kind].label),
+      h('textarea', { class: 'blk-extra', rows: 1, placeholder: EXTRA[kind].placeholder, value: b[kind] || '', 'aria-label': EXTRA[kind].label, dataset: { kind } }));
+  });
+}
+
 function textArea(b, placeholder) {
   return h('textarea', { class: 'blk-text', rows: 1, placeholder, value: b.text, enterkeyhint: 'enter' });
 }
@@ -152,19 +177,21 @@ function blockEl(b, chapNums) {
   const more = h('button', { class: 'blk-more', type: 'button', 'data-act': 'menu', 'aria-label': 'この段落のメニュー' }, '⋯');
   switch (b.type) {
     case 'dialogue': {
-      const c = charById(b.charId);
-      return h('div', { class: 'blk blk-dialogue', 'data-id': b.id, style: c ? `--c:${c.color}` : null },
-        h('button', { class: 'blk-name' + (c ? '' : ' missing'), type: 'button', 'data-act': 'change-char', 'aria-label': '話す人物を変更' }, nameContent(c)),
+      const sps = speakersOf(b, charMap());
+      const first = sps[0]?.c;
+      const missing = !sps.length || sps.some((sp) => sp.id !== ALL_ID && !sp.c);
+      return h('div', { class: 'blk blk-dialogue', 'data-id': b.id, style: first ? `--c:${first.color}` : null },
+        h('button', { class: 'blk-name' + (missing ? ' missing' : ''), type: 'button', 'data-act': 'change-char', 'aria-label': '話す人物を変更' }, speakerContent(b)),
         h('span', { class: 'q' }, '「'),
         textArea(b, 'セリフ'),
         h('span', { class: 'q q-end' }, '」'),
-        b.note || noteEditingId === b.id ? h('textarea', { class: 'blk-note', rows: 1, placeholder: '演技の指示（例：怒りをこらえて）', value: b.note || '', 'aria-label': '演技の指示' }) : null,
+        extraFields(b),
         more);
     }
     case 'direction':
-      return h('div', { class: 'blk blk-direction', 'data-id': b.id, style: `--indent:${S.settings.directionIndent}` }, textArea(b, 'ト書き'), more);
+      return h('div', { class: 'blk blk-direction', 'data-id': b.id, style: `--indent:${S.settings.directionIndent}` }, textArea(b, 'ト書き'), extraFields(b), more);
     case 'situation':
-      return h('div', { class: 'blk blk-situation', 'data-id': b.id }, textArea(b, 'シチュエーション（中央に配置）'), more);
+      return h('div', { class: 'blk blk-situation', 'data-id': b.id }, textArea(b, 'シチュエーション（中央に配置）'), extraFields(b), more);
     case 'chapter':
       return h('div', { class: 'blk blk-chapter', 'data-id': b.id },
         h('span', { class: 'chap-label' }, chapterLabel(chapNums.get(b.id), S.settings.chapterFormat)),
@@ -207,7 +234,11 @@ function focusBlock(id, { atEnd = true, select = null, scroll = true } = {}) {
   field.focus({ preventScroll: true });
   if (select) field.setSelectionRange(select[0], select[1]);
   else if (atEnd) field.setSelectionRange(field.value.length, field.value.length);
-  if (scroll) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (scroll) {
+    // 縦書きでは、書いている列を画面の右寄せに持ってくる
+    if (S.settings.editorWritingMode === 'vertical') el.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' });
+    else el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 
 function currentBlock() {
@@ -222,10 +253,11 @@ function insertBlock(type, extra = {}) {
   if (cur && cur.type !== 'chapter' && type !== 'chapter' && cur.text === '') {
     target = cur;
     target.type = type;
-    if (type === 'dialogue') target.charId = extra.charId;
-    else delete target.charId;
+    if (type === 'dialogue') setSpeakers(target, extra.ids || []);
+    else { delete target.charId; delete target.charIds; }
   } else {
-    target = { id: uid(), type, text: '', ...extra };
+    target = { id: uid(), type, text: '' };
+    if (type === 'dialogue') setSpeakers(target, extra.ids || []);
     const idx = cur ? blockIndex(cur.id) + 1 : S.blocks.length;
     S.blocks.splice(idx, 0, target);
   }
@@ -264,43 +296,112 @@ function suggestedOrder() {
   const recent = [];
   for (let i = end; i >= 0 && recent.length < 2; i--) {
     const b = S.blocks[i];
-    if (b.type === 'dialogue' && b.charId && !recent.includes(b.charId)) recent.push(b.charId);
+    const ids = b.type === 'dialogue' ? speakerIds(b) : [];
+    if (ids.length === 1 && ids[0] !== ALL_ID && !recent.includes(ids[0])) recent.push(ids[0]);
   }
   const ids = S.characters.map((c) => c.id);
   const front = recent.length === 2 ? [recent[1], recent[0]] : recent;
   return { order: [...front, ...ids.filter((id) => !front.includes(id))], next: recent[1] || null };
 }
 
-function openCharPicker({ title, currentId, onPick }) {
-  const { order, next } = suggestedOrder();
-  const grid = h('div', { class: 'pick-grid' });
-  for (const id of order) {
-    const c = charById(id);
-    if (!c) continue;
-    grid.append(h('button', {
-      class: 'pick' + (id === currentId ? ' current' : ''),
-      type: 'button',
-      style: `--c:${c.color}`,
-      onclick: () => { closeSheet(); onPick(c.id); },
-    },
-    id === next ? h('span', { class: 'badge' }, '次はこの人？') : null,
-    h('span', { class: 'nm' }, c.name),
-    h('span', { class: 'rd' }, [c.reading, c.actor && `（${c.actor}）`].filter(Boolean).join(' ') || ' ')));
+// モブ・脇役・群衆・煽りを作る（同じ名前があればそれを使う）
+function groupCharacter(name, kind, inCast) {
+  let c = S.characters.find((x) => x.name === name);
+  if (!c) {
+    c = addCharacter(name);
+    c.kind = 'group';
+    c.groupKind = kind;
   }
-  const input = h('input', { type: 'text', placeholder: '新しい人物の名前', enterkeyhint: 'done', autocomplete: 'off' });
-  const add = (e) => {
-    e.preventDefault();
-    const name = input.value.trim();
-    if (!name) { input.focus(); return; }
-    const c = S.characters.find((x) => x.name === name) || addCharacter(name);
-    closeSheet();
-    onPick(c.id);
-  };
-  const form = h('form', { class: 'add-row', onsubmit: add }, input, h('button', { class: 'btn primary', type: 'submit' }, '追加して選ぶ'));
-  openSheet(title,
-    S.characters.length ? grid : h('p', { class: 'note' }, 'まだ人物がいません。名前を入力して追加してください。'),
-    form);
-  if (!S.characters.length) setTimeout(() => input.focus(), 50);
+  if (c.kind === 'group') c.inCast = inCast;
+  markDirty();
+  return c;
+}
+
+// 話す人物を選ぶ。onPick には話者IDの配列を渡す（1人・複数人・全員・モブなど）
+function openCharPicker({ title, current = [], onPick }) {
+  const { order, next } = suggestedOrder();
+  const pick = (ids) => { closeSheet(); onPick(ids); };
+  const body = h('div');
+  let multi = false;
+  const chosen = new Set();
+
+  function render() {
+    body.innerHTML = '';
+    const grid = h('div', { class: 'pick-grid' });
+    for (const id of order) {
+      const c = charById(id);
+      if (!c) continue;
+      const on = multi ? chosen.has(id) : current.length === 1 && current[0] === id;
+      grid.append(h('button', {
+        class: 'pick' + (on ? ' current' : ''),
+        type: 'button',
+        style: `--c:${c.color}`,
+        'aria-pressed': multi ? String(on) : null,
+        onclick: () => {
+          if (!multi) { pick([c.id]); return; }
+          if (chosen.has(id)) chosen.delete(id); else chosen.add(id);
+          render();
+        },
+      },
+      multi ? h('span', { class: 'check' }, on ? '✓' : '') : null,
+      !multi && id === next ? h('span', { class: 'badge' }, '次はこの人？') : null,
+      h('span', { class: 'nm' }, c.name),
+      h('span', { class: 'rd' }, [c.kind === 'group' ? (c.groupKind || 'モブ') : c.reading, c.actor && `（${c.actor}）`].filter(Boolean).join(' ') || ' ')));
+    }
+
+    if (multi) {
+      body.append(
+        h('p', { class: 'note' }, '同時に話す人物をすべて選んでください。'),
+        S.characters.length ? grid : h('p', { class: 'note' }, 'まだ人物がいません。'),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'btn primary', type: 'button', disabled: chosen.size < 1, onclick: () => pick(order.filter((id) => chosen.has(id))) }, `決定（${chosen.size}人）`),
+          h('button', { class: 'btn', type: 'button', onclick: () => { multi = false; chosen.clear(); render(); } }, 'やめる')));
+      return;
+    }
+
+    const special = (label, fn, cls = '') => h('button', { class: `chip ${cls}`, type: 'button', onclick: fn }, label);
+    body.append(
+      S.characters.length ? grid : h('p', { class: 'note' }, 'まだ人物がいません。名前を入力して追加してください。'),
+      h('div', { class: 'chip-row' },
+        special('複数人を選ぶ', () => { multi = true; current.filter((id) => id !== ALL_ID).forEach((id) => chosen.add(id)); render(); }),
+        special('全員', () => pick([ALL_ID])),
+        GROUP_KINDS.map((kind) => special(kind, () => openGroupForm(kind), 'chip-group'))));
+
+    const input = h('input', { type: 'text', placeholder: '新しい人物の名前', enterkeyhint: 'done', autocomplete: 'off' });
+    body.append(h('form', {
+      class: 'add-row',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const name = input.value.trim();
+        if (!name) { input.focus(); return; }
+        const c = S.characters.find((x) => x.name === name) || addCharacter(name);
+        pick([c.id]);
+      },
+    }, input, h('button', { class: 'btn primary', type: 'submit' }, '追加して選ぶ')));
+  }
+
+  // モブ・脇役・群衆・煽り：名前（例：村人A）と「配役に追加」を選ぶ
+  function openGroupForm(kind) {
+    body.innerHTML = '';
+    const nameIn = h('input', { type: 'text', value: kind, placeholder: `${kind}の名前（例：${kind === '群衆' ? '村人たち' : `${kind}A`}）`, autocomplete: 'off' });
+    const castCb = h('input', { type: 'checkbox' });
+    const existing = S.characters.filter((c) => c.kind === 'group');
+    body.append(
+      h('p', { class: 'note' }, `「${kind}」のセリフにします。名前は自由に変えられます。`),
+      h('label', { class: 'field' }, '名前', nameIn),
+      h('label', { class: 'switch-row' }, castCb, '配役に追加（配役表・配役タブに出す）'),
+      h('p', { class: 'note' }, 'チェックしない場合は、セリフにだけ使われ、配役表には出ません。'),
+      h('div', { class: 'row-btns' },
+        h('button', { class: 'btn primary', type: 'button', onclick: () => {
+          const name = nameIn.value.trim() || kind;
+          pick([groupCharacter(name, kind, castCb.checked).id]);
+        } }, '決定'),
+        h('button', { class: 'btn', type: 'button', onclick: render }, '戻る')),
+      ...(existing.length ? [h('p', { class: 'note' }, `作成済み：${existing.map((c) => c.name).join('、')}（同じ名前を入れるとそれを使います）`)] : []));
+  }
+
+  render();
+  openSheet(title, body);
 }
 
 function openBlockMenu(id) {
@@ -310,26 +411,23 @@ function openBlockMenu(id) {
     h('li', {}, h('button', { type: 'button', class: cls, onclick: () => { closeSheet(); fn(); } }, label, sub ? h('span', { class: 'sub' }, sub) : null));
   const toType = (type) => () => {
     if (type === 'dialogue') {
-      openCharPicker({ title: '話す人物を選ぶ', onPick: (cid) => { pushUndo(); b.type = 'dialogue'; b.charId = cid; markDirty(); renderEditor(); focusBlock(b.id); } });
+      openCharPicker({ title: '話す人物を選ぶ', onPick: (ids) => { pushUndo(); b.type = 'dialogue'; setSpeakers(b, ids); markDirty(); renderEditor(); focusBlock(b.id); } });
       return;
     }
     pushUndo();
     b.type = type;
     delete b.charId;
+    delete b.charIds;
     markDirty();
     renderEditor();
     focusBlock(b.id);
   };
   const list = h('ul', { class: 'menu-list' },
     b.type === 'dialogue' ? item('話す人物を変える', () => changeChar(b.id)) : null,
-    b.type === 'dialogue' && !b.note ? item('演技の指示を追加', () => addNote(b.id), '', '例：怒りをこらえて') : null,
-    b.type === 'dialogue' && b.note ? item('演技の指示を消す', () => {
-      pushUndo();
-      b.note = '';
-      markDirty();
-      renderEditor();
-      toast('演技の指示を消しました', { label: '元に戻す', fn: undo });
-    }) : null,
+    b.type !== 'chapter' && !b.note ? item('演技の指示を追加', () => addExtra(b.id, 'note'), '', '例：怒りをこらえて／スポットライトで照らす') : null,
+    b.type !== 'chapter' && b.note ? item('演技の指示を消す', () => removeExtra(b, 'note')) : null,
+    b.type !== 'chapter' && !b.memo ? item('メモを追加', () => addExtra(b.id, 'memo'), '', 'ページの上のメモ欄に入ります') : null,
+    b.type !== 'chapter' && b.memo ? item('メモを消す', () => removeExtra(b, 'memo')) : null,
     b.type !== 'dialogue' ? item('セリフにする', toType('dialogue')) : null,
     b.type !== 'direction' ? item('ト書きにする', toType('direction')) : null,
     b.type !== 'situation' ? item('シチュエーションにする', toType('situation')) : null,
@@ -351,19 +449,33 @@ function openBlockMenu(id) {
   openSheet('段落', list);
 }
 
-function addNote(id) {
-  noteEditingId = id;
-  if (!S.settings.actingNotes) {
+// メモ・演技の指示を追加。印刷にそのスペースが無ければ付ける
+function addExtra(id, kind) {
+  extraEditing = { id, kind };
+  if (kind === 'note' && !S.settings.actingNotes) {
     S.settings.actingNotes = true;
     markDirty();
     toast('印刷に「演技の指示」のスペースを付けました（設定で変えられます）');
   }
+  if (kind === 'memo' && S.settings.memoArea === 'none') {
+    S.settings.memoArea = 'medium';
+    markDirty();
+    toast('印刷に「メモ」のスペースを付けました（設定で変えられます）');
+  }
   renderEditor();
-  const ta = $(`#editor [data-id="${id}"] .blk-note`);
+  const ta = $(`#editor [data-id="${id}"] .blk-extra[data-kind="${kind}"]`);
   if (ta) {
     ta.focus({ preventScroll: true });
     ta.closest('.blk').scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }
+}
+
+function removeExtra(b, kind) {
+  pushUndo();
+  b[kind] = '';
+  markDirty();
+  renderEditor();
+  toast(kind === 'note' ? '演技の指示を消しました' : 'メモを消しました', { label: '元に戻す', fn: undo });
 }
 
 function changeChar(id) {
@@ -371,18 +483,18 @@ function changeChar(id) {
   if (!b) return;
   openCharPicker({
     title: '話す人物を変える',
-    currentId: b.charId,
-    onPick: (cid) => { pushUndo(); b.charId = cid; markDirty(); renderEditor(); focusBlock(b.id); },
+    current: speakerIds(b),
+    onPick: (ids) => { pushUndo(); setSpeakers(b, ids); markDirty(); renderEditor(); focusBlock(b.id); },
   });
 }
 
 function bindEditor() {
   const ed = $('#editor');
   ed.addEventListener('input', (e) => {
-    const note = e.target.closest('.blk-note');
-    if (note) {
-      const nb = S.blocks.find((x) => x.id === note.closest('.blk').dataset.id);
-      if (nb) { nb.note = note.value; autosize(note); markDirty(); }
+    const extra = e.target.closest('.blk-extra');
+    if (extra) {
+      const nb = S.blocks.find((x) => x.id === extra.closest('.blk').dataset.id);
+      if (nb) { nb[extra.dataset.kind] = extra.value; autosize(extra); markDirty(); }
       return;
     }
     const field = e.target.closest('.blk-text');
@@ -399,12 +511,13 @@ function bindEditor() {
   });
   // 空のまま離れた指示欄はしまう
   ed.addEventListener('focusout', (e) => {
-    const note = e.target.closest('.blk-note');
-    if (!note || note.value.trim()) return;
-    const b = S.blocks.find((x) => x.id === note.closest('.blk').dataset.id);
-    if (b) b.note = '';
-    if (noteEditingId === b?.id) noteEditingId = null;
-    setTimeout(() => note.remove(), 0);
+    const extra = e.target.closest('.blk-extra');
+    if (!extra || extra.value.trim()) return;
+    const kind = extra.dataset.kind;
+    const b = S.blocks.find((x) => x.id === extra.closest('.blk').dataset.id);
+    if (b) b[kind] = '';
+    if (extraEditing && extraEditing.id === b?.id && extraEditing.kind === kind) extraEditing = null;
+    setTimeout(() => extra.closest('.blk-sub')?.remove(), 0);
   });
   ed.addEventListener('keydown', (e) => {
     const field = e.target.closest('.blk-text');
@@ -441,7 +554,7 @@ function bindEditor() {
     const type = btn.dataset.insert;
     if (type === 'dialogue') {
       document.activeElement?.blur?.();
-      openCharPicker({ title: '話す人物を選ぶ', onPick: (cid) => insertBlock('dialogue', { charId: cid }) });
+      openCharPicker({ title: '話す人物を選ぶ', onPick: (ids) => insertBlock('dialogue', { ids }) });
     } else {
       insertBlock(type);
     }
@@ -524,15 +637,15 @@ function autoReading(c, force = false) {
 function updateEditorNames() {
   $$('#editor .blk-dialogue').forEach((el) => {
     const b = S.blocks.find((x) => x.id === el.dataset.id);
-    const c = b && charById(b.charId);
+    if (!b) return;
     const btn = el.querySelector('.blk-name');
     btn.innerHTML = '';
-    btn.append(nameContent(c));
+    btn.append(...speakerContent(b));
   });
 }
 
 function lineCount(charId) {
-  return S.blocks.filter((b) => b.type === 'dialogue' && b.charId === charId).length;
+  return S.blocks.filter((b) => b.type === 'dialogue' && speakerIds(b).includes(charId)).length;
 }
 
 function renameCharacter(c, newName) {
@@ -591,6 +704,9 @@ function renderCharacters() {
       h('div', { class: 'card-row' }, h('span', { class: 'lbl' }, 'よみ'), readIn,
         h('button', { class: 'mini-btn', type: 'button', onclick: () => autoReadingButton(c) }, '自動')),
       c.readingIncomplete ? h('div', { class: 'card-row warn-text' }, '一部の漢字が読めませんでした。読みを確認してください。') : null,
+      c.kind === 'group' ? h('label', { class: 'card-row switch-row small-switch' },
+        h('input', { type: 'checkbox', checked: !!c.inCast, onchange: (e) => { c.inCast = e.target.checked; markDirty(); } }),
+        `${c.groupKind || 'モブ'}・配役に追加（配役表に出す）`) : null,
       h('div', { class: 'card-row' },
         h('span', { class: 'meta grow' }, `セリフ ${lineCount(c.id)}個`, c.actor ? ` ・ 配役：${c.actor}` : ''),
         h('button', { class: 'mini-btn danger', type: 'button', onclick: () => deleteCharacter(c) }, '削除'))));
@@ -627,7 +743,8 @@ function renderCast() {
   const dl = h('datalist', { id: 'actor-options' }, actors.map((a) => h('option', { value: a })));
   list.append(dl);
   if (!S.characters.length) list.append(h('li', { class: 'note' }, '先に「人物」タブで登場人物を追加してください。'));
-  for (const c of S.characters) {
+  const hidden = S.characters.filter((c) => !inCastList(c));
+  for (const c of S.characters.filter(inCastList)) {
     const input = h('input', { class: 'grow', type: 'text', value: c.actor, placeholder: '演じる人の名前', list: 'actor-options', 'aria-label': `${c.name}の演者`, enterkeyhint: 'done' });
     input.addEventListener('input', () => { c.actor = input.value; markDirty(); });
     input.addEventListener('change', () => renderActorSummary());
@@ -637,6 +754,9 @@ function renderCast() {
         h('span', { class: 'meta' }, '演者'),
         input)));
   }
+  if (hidden.length) {
+    list.append(h('li', { class: 'note' }, `配役に出していない役：${hidden.map((c) => c.name).join('、')}（「人物」タブの「配役に追加」で出せます）`));
+  }
   renderActorSummary();
   syncSettingInputs();
 }
@@ -645,7 +765,7 @@ function renderActorSummary() {
   const box = $('#actor-summary');
   box.innerHTML = '';
   const byActor = new Map();
-  for (const c of S.characters) {
+  for (const c of S.characters.filter(inCastList)) {
     const a = c.actor.trim() || '（未定）';
     if (!byActor.has(a)) byActor.set(a, []);
     byActor.get(a).push(c);
@@ -655,7 +775,7 @@ function renderActorSummary() {
   const rows = [...byActor.entries()].map(([a, cs]) => {
     const lines = cs.reduce((n, c) => n + lineCount(c.id), 0);
     const chs = new Set();
-    for (const b of S.blocks) if (b.type === 'dialogue' && cs.some((c) => c.id === b.charId)) chs.add(chapters.get(b.id));
+    for (const b of S.blocks) if (b.type === 'dialogue' && cs.some((c) => speakerIds(b).includes(c.id))) chs.add(chapters.get(b.id));
     const chText = [...chs].filter((x) => x > 0).map((n) => chapterLabel(n, S.settings.chapterFormat)).join('・');
     return h('tr', {}, h('td', {}, h('b', {}, a)), h('td', {}, cs.map((c) => c.name).join('、')), h('td', {}, `${lines}`), h('td', {}, chText || '—'));
   });
@@ -716,26 +836,26 @@ function renderCheck(run) {
   const LV = { error: '誤字', warn: '要確認', info: '参考' };
   for (const is of lastIssues) {
     const b = S.blocks.find((x) => x.id === is.blockId);
-    const who = b?.type === 'dialogue' ? (charById(b.charId)?.name || '人物？') : { direction: 'ト書き', situation: 'シチュエーション', chapter: '章' }[b?.type];
+    const who = b?.type === 'dialogue' ? speakerLabel(b, charMap()) : { direction: 'ト書き', situation: 'シチュエーション', chapter: '章' }[b?.type];
     list.append(h('li', { class: 'check-item' },
       h('div', { class: 'msg' }, h('span', { class: `lv lv-${is.level}` }, LV[is.level]), is.message),
       h('div', { class: 'ctx' }, h('span', { class: 'who' }, `${who}：`), is.context.before, is.end > is.start ? h('mark', {}, is.context.hit) : null, is.context.after),
       h('div', { class: 'acts' },
         is.suggestion != null ? h('button', { class: 'btn small primary', type: 'button', onclick: () => fixOne(is) }, is.suggestion === '' ? '削除する' : `「${is.suggestion}」に直す`) : null,
         is.rule === 'same-speaker' && charById(is.altCharId) ? h('button', { class: 'btn small primary', type: 'button', onclick: () => setSpeaker(is.blockId, is.altCharId) }, `「${charById(is.altCharId).name}」に変える`) : null,
-        is.rule === 'same-speaker' ? h('button', { class: 'btn small', type: 'button', onclick: () => openCharPicker({ title: '話す人物を選ぶ', currentId: b.charId, onPick: (cid) => setSpeaker(is.blockId, cid) }) }, '人物を選ぶ') : null,
+        is.rule === 'same-speaker' ? h('button', { class: 'btn small', type: 'button', onclick: () => openCharPicker({ title: '話す人物を選ぶ', current: speakerIds(b), onPick: (ids) => setSpeaker(is.blockId, ids) }) }, '人物を選ぶ') : null,
         h('button', { class: 'btn small', type: 'button', onclick: () => jumpTo(is) }, '本文へ'),
         h('button', { class: 'btn small ghost', type: 'button', onclick: () => ignoreIssue(is) }, '無視'))));
   }
 }
 
-function setSpeaker(blockId, charId) {
+function setSpeaker(blockId, ids) {
   const b = S.blocks.find((x) => x.id === blockId);
   if (!b) return;
   pushUndo();
-  b.charId = charId;
+  setSpeakers(b, Array.isArray(ids) ? ids : [ids]);
   markDirty();
-  toast(`「${charById(charId)?.name}」に変えました`, { label: '元に戻す', fn: () => { undo(); renderCheck(true); } });
+  toast(`「${speakerLabel(b, charMap())}」に変えました`, { label: '元に戻す', fn: () => { undo(); renderCheck(true); } });
   renderCheck(true);
 }
 
@@ -1141,15 +1261,25 @@ function scriptFromPdf(parsed, extracted, fallbackTitle) {
   s.settings.writingMode = parsed.report.vertical ? 'vertical' : 'horizontal';
   s.settings.orientation = extracted.landscape ? 'landscape' : 'portrait';
   if (parsed.report.notes) s.settings.actingNotes = true;
+  if (parsed.report.memos) s.settings.memoArea = 'medium';
+  // 「全員」「教授・裕二」のような話者は、人物を増やさず全員・複数人として扱う
+  const plain = new Set(parsed.characters.map((c) => c.name));
+  const isCombined = (name) => name === '全員' || (name.includes('・') && name.split('・').every((n) => plain.has(n)));
   const idByName = new Map();
-  s.characters = parsed.characters.map((c, i) => {
+  s.characters = parsed.characters.filter((c) => !isCombined(c.name)).map((c, i) => {
     const id = uid();
     idByName.set(c.name, id);
     return { id, name: c.name, reading: c.reading || '', readingAuto: !c.reading, actor: c.actor || '', color: store.CHAR_COLORS[i % store.CHAR_COLORS.length] };
   });
-  s.blocks = parsed.blocks.map((b) => (b.type === 'dialogue'
-    ? { id: uid(), type: 'dialogue', charId: idByName.get(b.name) || null, text: b.text, note: b.note || '' }
-    : { id: uid(), type: b.type, text: b.text }));
+  s.blocks = parsed.blocks.map((b) => {
+    const extra = b.type === 'chapter' ? {} : { note: b.note || '', memo: b.memo || '' };
+    if (b.type !== 'dialogue') return { id: uid(), type: b.type, text: b.text, ...extra };
+    const block = { id: uid(), type: 'dialogue', text: b.text, ...extra };
+    if (b.name === '全員') setSpeakers(block, [ALL_ID]);
+    else if (!idByName.has(b.name) && b.name.includes('・')) setSpeakers(block, b.name.split('・').map((n) => idByName.get(n)).filter(Boolean));
+    else setSpeakers(block, [idByName.get(b.name)].filter(Boolean));
+    return block;
+  });
   return s;
 }
 
@@ -1165,7 +1295,8 @@ function showPdfImportResult(r, rec) {
       h('li', {}, `${r.pages}ページを読み取りました（${r.vertical ? '縦書き' : '横書き'}として判定）`),
       h('li', {}, `人物：${S.characters.length}人${names ? `（${names}）` : ''}`),
       h('li', {}, `セリフ：${r.dialogues}・ト書き：${r.directions}・章：${r.chapters}・シチュエーション：${r.situations}`),
-      r.notes ? h('li', {}, `演技の指示：${r.notes}（設定の「演技の指示」をオンにしました）`) : null),
+      r.notes ? h('li', {}, `演技の指示：${r.notes}（設定の「演技の指示」をオンにしました）`) : null,
+      r.memos ? h('li', {}, `メモ：${r.memos}（設定の「メモのスペース」をオンにしました）`) : null),
     h('div', { class: 'row-btns wrap' },
       rec ? h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfViewer(rec.id); } }, '元のPDFと見比べる') : null,
       h('button', { class: 'btn primary', type: 'button', onclick: closeSheet }, '確認する')));

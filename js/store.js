@@ -19,9 +19,8 @@ export const DEFAULT_SETTINGS = {
   printCastPage: true,
   pageNumbers: true,
   autoReading: true,
-  memoArea: 'none',            // 演者のメモ欄：none | small | medium | large
-  memoPosition: 'top',         // top | bottom | left | right
-  memoRuled: true,             // メモ欄に罫線
+  memoArea: 'none',            // メモのスペース（行の頭側）：none | small | medium | large
+  memoRuled: true,             // メモ・指示のスペースに罫線
   actingNotes: false,          // 印刷に「演技の指示」スペースを付ける
   editorWritingMode: 'horizontal', // 書く画面：horizontal | vertical
 };
@@ -56,11 +55,20 @@ export function normalize(s) {
     readingAuto: c.readingAuto !== false,
     actor: String(c.actor || ''),
     color: c.color || CHAR_COLORS[i % CHAR_COLORS.length],
+    kind: c.kind === 'group' ? 'group' : 'main', // group = モブ・脇役・群衆・煽り
+    inCast: !!c.inCast,
   }));
   const types = new Set(['dialogue', 'direction', 'situation', 'chapter']);
   out.blocks = (s.blocks || [])
     .filter((b) => types.has(b.type))
-    .map((b) => ({ id: b.id || uid(), type: b.type, text: String(b.text || ''), ...(b.type === 'dialogue' ? { charId: b.charId || null, note: String(b.note || '') } : {}) }));
+    .map((b) => ({
+      id: b.id || uid(),
+      type: b.type,
+      text: String(b.text || ''),
+      ...(b.type === 'dialogue' ? { charId: b.charId || null } : {}),
+      ...(b.type === 'dialogue' && Array.isArray(b.charIds) && b.charIds.length > 1 ? { charIds: b.charIds.map(String) } : {}),
+      ...(b.type !== 'chapter' ? { note: String(b.note || ''), memo: String(b.memo || '') } : {}),
+    }));
   out.ignored = Array.isArray(s.ignored) ? s.ignored : [];
   return out;
 }

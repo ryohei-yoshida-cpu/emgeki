@@ -1,11 +1,12 @@
 // PDF から取り出した文字の位置情報を行にまとめ、脚本（セリフ・ト書き・章など）に読み替える。
 // ブラウザに依存しない純粋な処理だけを置く。
 
-const median = (arr) => {
+const percentile = (arr, p) => {
   if (!arr.length) return 0;
   const s = [...arr].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)];
+  return s[Math.min(s.length - 1, Math.floor(s.length * p))];
 };
+const median = (arr) => percentile(arr, 0.5);
 
 // ---------- 1. 文字 → 行 ----------
 
@@ -20,8 +21,9 @@ function toGlyphs(items) {
 
 // ルビ（本文より小さい、かなだけの字）は読み飛ばす
 function bodyGlyphs(glyphs) {
-  const base = median(glyphs.map((g) => g.size));
-  return { base, body: glyphs.filter((g) => g.size >= base * 0.7 || !/^[ぁ-ゖァ-ヺー\s]+$/.test(g.str)) };
+  // 本文の字の大きさ。ルビが多いページ（配役表など）でも本文側を取れるよう、上の方の値を使う
+  const base = percentile(glyphs.map((g) => g.size), 0.75);
+  return { base, body: glyphs.filter((g) => g.size >= base * 0.7 || !/^[ぁ-ゖァ-ヺーA-Za-z0-9Ａ-Ｚａ-ｚ０-９\s]+$/.test(g.str)) };
 }
 
 // 縦書きらしさの票：並び順で隣り合う字が「同じ x で下へ」進むか「同じ y で右へ」進むか
@@ -75,7 +77,7 @@ export function pageToLines(items, pageWidth, pageHeight, vertical) {
       const len = vertical ? g.size * [...g.str].length : (g.w || g.size * [...g.str].length);
       if (seg && start - seg.end > base * 4) seg = null;
       if (!seg) {
-        seg = { text: '', start, end: start, sizes: [], afterGap: segs.length > 0 };
+        seg = { text: '', start, end: start, sizes: [] };
         segs.push(seg);
       } else if (start - seg.end > base * 0.8) {
         seg.text += '　'.repeat(Math.max(1, Math.round((start - seg.end) / base)));
@@ -84,7 +86,13 @@ export function pageToLines(items, pageWidth, pageHeight, vertical) {
       seg.end = start + len;
       seg.sizes.push(g.size);
     }
-    return segs.map(({ sizes, ...s }) => ({ ...s, text: s.text.replace(/\s+$/, ''), size: median(sizes) }));
+    // 字のいちばん大きい部分が本文（メモ・指示は小さめの字）。その前はメモ、後ろは演技の指示のスペース
+    const score = (s) => median(s.sizes) * 1000 + s.text.length;
+    const main = segs.reduce((m, s, i) => (score(s) > score(segs[m]) ? i : m), 0);
+    return segs.map(({ sizes, ...s }, i) => ({
+      ...s, text: s.text.replace(/\s+$/, ''), size: median(sizes),
+      afterGap: segs.length > 1 && i > main, beforeGap: segs.length > 1 && i < main,
+    }));
   }).filter((l) => l.text.trim());
 
   return { lines: [...lines, ...extra], vertical, pageWidth, pageHeight };
@@ -108,7 +116,7 @@ export function parsePages(pages) {
   const all = [];
   pages.forEach((p, pi) => {
     // ページの本文の左右（上下）端
-    const longLines = p.lines.filter((l) => [...l.text].length > 6 && !l.afterGap);
+    const longLines = p.lines.filter((l) => [...l.text].length > 6 && !l.afterGap && !l.beforeGap);
     const minStart = Math.min(...(longLines.length ? longLines : p.lines).map((l) => l.start));
     const maxEnd = Math.max(...(longLines.length ? longLines : p.lines).map((l) => l.end));
     for (const l of p.lines) {
@@ -183,6 +191,17 @@ export function parsePages(pages) {
   const names = new Map(); // name -> 登場順
   let cur = null;           // 続きを受け付けているセリフ
   let noteLine = null;      // 演技の指示スペースに書かれた、直前の指示の行
+  let lastBlock = null;     // メモ・指示を付ける先（直前のセリフ・ト書き・シチュエーション）
+  let pendingMemo = null;   // 本文より先に読んだメモ（次の段落に付ける）
+  let memoLine = null;
+  const pushBlock = (block) => {
+    blocks.push(block);
+    if (block.type !== 'chapter') {
+      lastBlock = block;
+      noteLine = null;
+      if (pendingMemo != null) { block.memo = pendingMemo; pendingMemo = null; }
+    }
+  };
   let lastDir = null;       // 折り返しで続いているかもしれないト書き
 
   const isCentered = (l) => {
@@ -198,24 +217,37 @@ export function parsePages(pages) {
     const l = all[i];
     const text = l.text;
 
+    // メモのスペース（行の頭側に離れて書かれた部分）
+    if (l.beforeGap) {
+      pendingMemo = text;
+      memoLine = l;
+      report.memos = (report.memos || 0) + 1;
+      continue;
+    }
+    if (memoLine && l.end < l.minStart && Math.abs(l.start - memoLine.start) < l.size * 1.5) {
+      if (pendingMemo != null) pendingMemo += text;
+      else if (lastBlock) lastBlock.memo = (lastBlock.memo || '') + text;
+      memoLine = l;
+      continue;
+    }
     // 演技の指示スペース（行の終わり側に離れて書かれた部分）
     const inBand = l.maxEnd > l.minStart && (l.start - l.minStart) / (l.maxEnd - l.minStart) > 0.6;
-    if (l.afterGap && cur && !cur.block.note) {
-      cur.block.note = text;
+    if (l.afterGap && lastBlock && !lastBlock.note) {
+      lastBlock.note = text;
       noteLine = l;
       report.notes++;
       continue;
     }
-    if (noteLine && cur && inBand && Math.abs(l.start - noteLine.start) < l.size * 1.5) {
-      cur.block.note += text;
+    if (noteLine && lastBlock && inBand && Math.abs(l.start - noteLine.start) < l.size * 1.5) {
+      lastBlock.note += text;
       noteLine = l;
       continue;
     }
-    if (l.afterGap && inBand) continue; // どのセリフの指示か分からないものは読み飛ばす
+    if (l.afterGap && inBand) continue; // どの段落の指示か分からないものは読み飛ばす
 
     const ch = text.match(CHAPTER_RE);
     if (ch && text.length <= 30) {
-      blocks.push({ type: 'chapter', text: ch[3].trim() });
+      pushBlock({ type: 'chapter', text: ch[3].trim() });
       report.chapters++;
       cur = null; lastDir = null;
       continue;
@@ -227,10 +259,9 @@ export function parsePages(pages) {
       let body = sp.rest;
       let open = sp.kind === 'A';
       if (open && /」\s*$/.test(body)) { body = body.replace(/」\s*$/, ''); open = false; }
-      noteLine = null;
       cur = { block: { type: 'dialogue', name: sp.name, text: body, note: '' }, open, kind: sp.kind,
         textStart: l.start + sp.prefixLen * l.size, lastLine: l };
-      blocks.push(cur.block);
+      pushBlock(cur.block);
       report.dialogues++;
       lastDir = null;
       continue;
@@ -240,6 +271,7 @@ export function parsePages(pages) {
     const note = text.match(NOTE_RE);
     if (cur && note && !cur.open && !cur.block.note && Math.abs(l.start - cur.textStart) < l.size * 1.5) {
       cur.block.note = note[1];
+      noteLine = null;
       report.notes++;
       continue;
     }
@@ -260,7 +292,7 @@ export function parsePages(pages) {
     cur = null;
 
     if (isCentered(l)) {
-      blocks.push({ type: 'situation', text });
+      pushBlock({ type: 'situation', text });
       report.situations++;
       lastDir = null;
       continue;
@@ -273,7 +305,7 @@ export function parsePages(pages) {
       continue;
     }
     const block = { type: 'direction', text };
-    blocks.push(block);
+    pushBlock(block);
     report.directions++;
     lastDir = { block, lastLine: l };
   }

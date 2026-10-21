@@ -1,50 +1,36 @@
 // A4 のページに脚本を割り付ける（縦書き・横書き、用紙の縦・横に対応）
 import { h, hasKanji, chapterLabel } from './util.js';
 import { fontCss } from './fonts.js';
+import { speakersOf, speakerIds, inCastList } from './speakers.js';
 
 const PAGE_MM = { portrait: [210, 297], landscape: [297, 210] };
 const MARGIN_MM = { top: 20, bottom: 22, side: 20 };
 const MM = 96 / 25.4; // 1mm の CSS px
-export const MEMO_FRACTION = { none: 0, small: 0.25, medium: 0.33, large: 0.45 };
-const MEMO_GAP_MM = 5;   // メモ欄と本文のすき間
+// メモのスペースの大きさ（行の長さに対する割合）
+export const MEMO_FRACTION = { none: 0, small: 1 / 6, medium: 1 / 5, large: 1 / 4 };
+const BAND_GAP_MM = 5;   // メモ・指示のスペースと本文のすき間
 const RULE_MM = 8;       // 罫線の間隔
 const NOTE_BAND = 0.2;   // 演技の指示スペース：行の長さの約1/5
 
-// 本文の枠とメモ欄の枠（どちらも用紙の端からの距離 mm）
+// 本文の枠と、メモのスペース（行の頭側）・指示のスペース（行の終わり側）の枠。どれも用紙の端からの距離 mm。
+// 縦書きならメモは上・指示は下、横書きならメモは左・指示は右。
 export function pageLayout(st) {
   const [pw, ph] = PAGE_MM[st.orientation] || PAGE_MM.portrait;
   const body = { top: MARGIN_MM.top, bottom: MARGIN_MM.bottom, left: MARGIN_MM.side, right: MARGIN_MM.side };
-  const frac = MEMO_FRACTION[st.memoArea] || 0;
-  let memo = null, pos = null, size = 0;
-  if (frac) ({ memo, pos, size } = carveMemo(st, body, frac, pw, ph));
-  // 演技の指示スペースは行の終わり側（縦書きなら下、横書きなら右）
-  let band = null;
-  if (st.actingNotes) {
-    if (st.writingMode === 'vertical') {
-      const len = (ph - body.top - body.bottom) * NOTE_BAND;
-      band = { ...body, top: ph - body.bottom - len };
-      body.bottom += len + MEMO_GAP_MM;
-    } else {
-      const len = (pw - body.left - body.right) * NOTE_BAND;
-      band = { ...body, left: pw - body.right - len };
-      body.right += len + MEMO_GAP_MM;
-    }
+  const vertical = st.writingMode === 'vertical';
+  const lineLen = vertical ? ph - body.top - body.bottom : pw - body.left - body.right;
+  let memo = null, band = null;
+  const memoLen = lineLen * (MEMO_FRACTION[st.memoArea] || 0);
+  const noteLen = st.actingNotes ? lineLen * NOTE_BAND : 0;
+  if (memoLen) {
+    if (vertical) { memo = { ...body, bottom: ph - body.top - memoLen }; body.top += memoLen + BAND_GAP_MM; }
+    else { memo = { ...body, right: pw - body.left - memoLen }; body.left += memoLen + BAND_GAP_MM; }
   }
-  return { body, memo, pos, size, band, pw, ph };
-}
-
-function carveMemo(st, body, frac, pw, ph) {
-  const memo = { ...body };
-  const pos = st.memoPosition || 'top';
-  const across = pos === 'top' || pos === 'bottom'
-    ? ph - MARGIN_MM.top - MARGIN_MM.bottom
-    : pw - MARGIN_MM.side * 2;
-  const size = across * frac;
-  if (pos === 'top') { memo.bottom = ph - body.top - size; body.top += size + MEMO_GAP_MM; }
-  if (pos === 'bottom') { memo.top = ph - body.bottom - size; body.bottom += size + MEMO_GAP_MM; }
-  if (pos === 'left') { memo.right = pw - body.left - size; body.left += size + MEMO_GAP_MM; }
-  if (pos === 'right') { memo.left = pw - body.right - size; body.right += size + MEMO_GAP_MM; }
-  return { memo, pos, size };
+  if (noteLen) {
+    if (vertical) { band = { ...body, top: ph - body.bottom - noteLen }; body.bottom += noteLen + BAND_GAP_MM; }
+    else { band = { ...body, left: pw - body.right - noteLen }; body.right += noteLen + BAND_GAP_MM; }
+  }
+  return { body, memo, band, pw, ph };
 }
 
 export function pageSizePx(orientation) {
@@ -69,6 +55,13 @@ function nameNode(c, withRuby) {
     return h('ruby', {}, c.name, h('rt', {}, c.reading));
   }
   return c.name;
+}
+
+// 複数の話者は「・」でつなぐ（全員はそのまま）
+function speakerNodes(block, chars, rubyFor) {
+  const list = speakersOf(block, chars);
+  if (!list.length) return ['（未設定）'];
+  return list.flatMap((sp, i) => [i ? '・' : null, sp.c ? nameNode(sp.c, rubyFor(sp.id)) : sp.name]).filter(Boolean);
 }
 
 export function renderPages(script, host) {
@@ -110,7 +103,7 @@ export function renderPages(script, host) {
       return lines;
     };
     if (withMemo && layout.memo) {
-      page.append(h('div', { class: `memo-area memo-${layout.pos}`, style: inset(layout.memo) },
+      page.append(h('div', { class: `memo-area ${vertical ? 'memo-top' : 'memo-left'}`, style: inset(layout.memo) },
         rules(layout.memo), h('span', { class: 'memo-label' }, 'メモ')));
     }
     if (withMemo && layout.band) {
@@ -143,12 +136,13 @@ export function renderPages(script, host) {
   }
 
   // ---- 配役表（登場人物） ----
-  if (st.printCastPage && script.characters.length) {
-    const hasActors = script.characters.some((c) => c.actor.trim());
-    const roleW = Math.max(...script.characters.map((c) => c.name.length)) + 3;
+  const castChars = script.characters.filter(inCastList);
+  if (st.printCastPage && castChars.length) {
+    const hasActors = castChars.some((c) => c.actor.trim());
+    const roleW = Math.max(...castChars.map((c) => c.name.length)) + 3;
     let body = newPage();
     body.append(h('div', { class: 'p-cast-head' }, hasActors ? '配役' : '登場人物'));
-    for (const c of script.characters) {
+    for (const c of castChars) {
       const row = h('div', { class: 'p-cast-row' },
         h('span', { class: 'p-cast-role', style: hasActors ? { inlineSize: `${roleW}em` } : null }, nameNode(c, st.ruby !== 'none')),
         hasActors ? h('span', { class: 'p-cast-actor' }, c.actor || '') : null);
@@ -166,12 +160,11 @@ export function renderPages(script, host) {
   const seen = new Set();
   let chapterNo = 0;
 
-  function makeEl(block, text, head, tail, ruby) {
+  function makeEl(block, text, head, tail, rubyFor) {
     switch (block.type) {
       case 'dialogue': {
-        const c = chars.get(block.charId);
         return h('div', { class: 'p-dlg' },
-          h('span', { class: 'p-name', style: head ? null : { visibility: 'hidden' } }, nameNode(c, ruby), '「'),
+          h('span', { class: 'p-name', style: head ? null : { visibility: 'hidden' } }, speakerNodes(block, chars, rubyFor), '「'),
           h('span', { class: 'p-text' }, text, tail ? '」' : ''));
       }
       case 'direction':
@@ -187,26 +180,31 @@ export function renderPages(script, host) {
     }
   }
 
-  // 演技の指示：そのセリフと同じ高さ（縦書きなら同じ列）の指示スペースに置く。前の指示と重なるときはずらす
-  function placeNote(anchor, text) {
+  // メモ・演技の指示：その段落と同じ高さ（縦書きなら同じ列）のスペースに置く。前のものと重なるときはずらす
+  function placeInBand(anchor, text, b, key) {
     const page = anchor.closest('.page');
     const pr = page.getBoundingClientRect();
     const ar = anchor.getBoundingClientRect();
-    const b = layout.band;
+    const edges = page._bandEdges || (page._bandEdges = {});
     const el = h('div', { class: 'p-band-note' }, text);
     if (vertical) {
       let right = pr.right - ar.right;
-      if (page._noteEdge != null) right = Math.max(right, page._noteEdge);
+      if (edges[key] != null) right = Math.max(right, edges[key]);
       Object.assign(el.style, { right: `${right}px`, top: `${b.top * MM + 2}px`, height: `${(size.h - b.top * MM - b.bottom * MM) - 4}px` });
       page.append(el);
-      page._noteEdge = pr.right - el.getBoundingClientRect().left + 2;
+      edges[key] = pr.right - el.getBoundingClientRect().left + 2;
     } else {
       let top = ar.top - pr.top;
-      if (page._noteEdge != null) top = Math.max(top, page._noteEdge);
+      if (edges[key] != null) top = Math.max(top, edges[key]);
       Object.assign(el.style, { top: `${top}px`, left: `${b.left * MM + 4}px`, width: `${(size.w - b.left * MM - b.right * MM) - 6}px` });
       page.append(el);
-      page._noteEdge = el.getBoundingClientRect().bottom - pr.top + 2;
+      edges[key] = el.getBoundingClientRect().bottom - pr.top + 2;
     }
+  }
+
+  function placeExtras(anchor, block) {
+    if (layout.memo && block.memo && block.memo.trim()) placeInBand(anchor, block.memo.trim(), layout.memo, 'memo');
+    if (layout.band && block.note && block.note.trim()) placeInBand(anchor, block.note.trim(), layout.band, 'note');
   }
 
   for (const block of script.blocks) {
@@ -216,21 +214,25 @@ export function renderPages(script, host) {
     }
     if (!body) body = newPage(true);
 
-    let ruby = false;
+    // ルビ：話者ごとに「毎回」か「初登場のみ」
+    const rubyIds = new Set();
     if (block.type === 'dialogue') {
-      ruby = st.ruby === 'all' || (st.ruby === 'first' && !seen.has(block.charId));
-      seen.add(block.charId);
+      for (const id of speakerIds(block)) {
+        if (st.ruby === 'all' || (st.ruby === 'first' && !seen.has(id))) rubyIds.add(id);
+        seen.add(id);
+      }
     }
+    const rubyHead = (id) => rubyIds.has(id);
+    const noRuby = () => false;
     const splittable = block.type !== 'chapter';
-    const note = block.type === 'dialogue' && layout.band && block.note ? block.note.trim() : '';
     let text = block.text;
     let head = true;
 
     for (;;) {
-      const el = makeEl(block, text, head, true, ruby && head);
+      const el = makeEl(block, text, head, true, head ? rubyHead : noRuby);
       body.append(el);
       if (fits(body, el)) {
-        if (head && note) placeNote(el, note);
+        if (head) placeExtras(el, block);
         break;
       }
       el.remove();
@@ -240,7 +242,7 @@ export function renderPages(script, host) {
         let lo = 1, hi = text.length - 1, best = 0;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
-          const t = makeEl(block, text.slice(0, mid), head, false, ruby && head);
+          const t = makeEl(block, text.slice(0, mid), head, false, head ? rubyHead : noRuby);
           body.append(t);
           const ok = fits(body, t);
           t.remove();
@@ -248,9 +250,9 @@ export function renderPages(script, host) {
         }
         while (best > 1 && NO_LINE_START.includes(text[best])) best--;
         if (best > 0) {
-          const part = makeEl(block, text.slice(0, best), head, false, ruby && head);
+          const part = makeEl(block, text.slice(0, best), head, false, head ? rubyHead : noRuby);
           body.append(part);
-          if (head && note) placeNote(part, note);
+          if (head) placeExtras(part, block);
           text = text.slice(best).replace(/^\n/, '');
           head = false;
           body = newPage(true);
@@ -259,7 +261,7 @@ export function renderPages(script, host) {
       }
       if (!body.children.length) { // 1ページに収まらない要素はそのまま置く
         body.append(el);
-        if (head && note) placeNote(el, note);
+        if (head) placeExtras(el, block);
         break;
       }
       body = newPage(true);

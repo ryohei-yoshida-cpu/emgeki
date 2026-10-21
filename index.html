@@ -160,21 +160,16 @@
         <label class="switch-row"><input type="checkbox" data-setting="chapterPageBreak"> 章ごとに改ページ（章を右上に置く）</label>
 
         <h2>演者用の書き込み</h2>
-        <label class="field">メモ欄（演者が書き込むスペース）
+        <label class="field">メモのスペース（ページの上。横書きでは左）
           <select data-setting="memoArea">
-            <option value="none">なし</option><option value="small">小さめ（約1/4）</option>
-            <option value="medium">ふつう（約1/3）</option><option value="large">大きめ（約1/2）</option>
+            <option value="none">なし</option><option value="small">小さめ（約1/6）</option>
+            <option value="medium">ふつう（約1/5）</option><option value="large">大きめ（約1/4）</option>
           </select>
         </label>
-        <label class="field">メモ欄の位置
-          <select data-setting="memoPosition">
-            <option value="top">上</option><option value="bottom">下</option><option value="right">右</option><option value="left">左</option>
-          </select>
-        </label>
-        <label class="switch-row"><input type="checkbox" data-setting="memoRuled"> メモ欄に罫線を引く</label>
-        <p class="note">メモ欄は<b>印刷するページ（「印刷」タブ・PDF）に付きます</b>。書く画面には出ません。本文との間には区切りの線が入ります（表紙・配役表には付きません）。</p>
-        <label class="switch-row"><input type="checkbox" data-setting="actingNotes"> 「演技の指示」スペースを付ける</label>
-        <p class="note">ページの下 約1/5（横書きでは右側）を演技の指示のスペースにし、メモ欄と同じ罫線を引きます。各セリフの指示は、そのセリフと同じ列に入ります。指示は、脚本画面でセリフ右の「⋯」→「演技の指示を追加」で書けます。</p>
+        <label class="switch-row"><input type="checkbox" data-setting="actingNotes"> 「演技の指示」のスペース（ページの下 約1/5。横書きでは右）</label>
+        <label class="switch-row"><input type="checkbox" data-setting="memoRuled"> メモ・指示のスペースに罫線を引く</label>
+        <p class="note">印刷するページ（「印刷」タブ・PDF）で、本文の上にメモ、下に演技の指示のスペースを作ります。本文との間には線が入り、罫線の余白は演者の書き込みにも使えます。
+          脚本画面で各段落の右の「⋯」→「メモを追加」「演技の指示を追加」で書いた内容は、その段落と同じ列に入ります（指示の例：怒りをこらえて／スポットライトで照らす）。</p>
         <button class="btn" type="button" data-go-preview>印刷のプレビューで確認する</button>
 
         <h2>印刷</h2>

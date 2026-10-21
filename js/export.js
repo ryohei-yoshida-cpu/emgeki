@@ -2,6 +2,7 @@
 import { chapterLabel, hasKanji } from './util.js';
 import { fontById } from './fonts.js';
 import { pageLayout } from './paginate.js';
+import { speakersOf, speakerLabel, inCastList } from './speakers.js';
 
 const charMap = (script) => new Map(script.characters.map((c) => [c.id, c]));
 const nameOf = (c) => (c ? c.name : '人物？');
@@ -26,10 +27,11 @@ export function scriptToText(script) {
   if (script.author) out.push(script.author);
   out.push('');
 
-  if (script.characters.length) {
-    const hasActors = script.characters.some((c) => c.actor.trim());
+  const castChars = script.characters.filter(inCastList);
+  if (castChars.length) {
+    const hasActors = castChars.some((c) => c.actor.trim());
     out.push(hasActors ? '【配役】' : '【登場人物】');
-    for (const c of script.characters) {
+    for (const c of castChars) {
       const role = c.reading && hasKanji(c.name) ? `${c.name}（${c.reading}）` : c.name;
       out.push(hasActors && c.actor.trim() ? `${role}……${c.actor.trim()}` : role);
     }
@@ -38,20 +40,27 @@ export function scriptToText(script) {
 
   const indent = '　'.repeat(st.directionIndent || 0);
   let chapterNo = 0;
+  // メモ・演技の指示は、段落の下に印を付けて書く
+  const extras = (b, pad) => {
+    if (b.memo && b.memo.trim()) out.push(`${pad}［メモ］${b.memo.trim().split('\n').join(`\n${pad}`)}`);
+    if (b.note && b.note.trim()) out.push(`${pad}［指示］${b.note.trim().split('\n').join(`\n${pad}`)}`);
+  };
   for (const b of script.blocks) {
     switch (b.type) {
       case 'dialogue': {
-        const name = nameOf(chars.get(b.charId));
+        const name = speakerLabel(b, chars);
         const pad = '　'.repeat(name.length + 1);
         out.push(`${name}「${b.text.split('\n').join(`\n${pad}`)}」`);
-        if (st.actingNotes && b.note && b.note.trim()) out.push(`${pad}（${b.note.trim().split('\n').join(`\n${pad}`)}）`);
+        extras(b, pad);
         break;
       }
       case 'direction':
         out.push(b.text.split('\n').map((l) => indent + l).join('\n'));
+        extras(b, indent);
         break;
       case 'situation':
         out.push('', b.text.split('\n').map((l) => '　'.repeat(8) + l).join('\n'));
+        extras(b, '　'.repeat(8));
         break;
       case 'chapter':
         chapterNo++;
@@ -105,41 +114,50 @@ export function scriptToDocx(script) {
     body.push(pageBreak);
   }
 
-  if (st.printCastPage && script.characters.length) {
-    const hasActors = script.characters.some((c) => c.actor.trim());
-    const roleW = Math.max(...script.characters.map((c) => c.name.length)) + 5;
+  const castChars = script.characters.filter(inCastList);
+  if (st.printCastPage && castChars.length) {
+    const hasActors = castChars.some((c) => c.actor.trim());
+    const roleW = Math.max(...castChars.map((c) => c.name.length)) + 5;
     body.push(para(textRuns(hasActors ? '配役' : '登場人物', `<w:b/><w:sz w:val="${Math.round(sz * 1.3)}"/>`), '<w:spacing w:after="240"/>'));
-    for (const c of script.characters) {
+    for (const c of castChars) {
       const ppr = `<w:tabs><w:tab w:val="left" w:pos="${Math.round(roleW * charTw)}"/></w:tabs><w:ind w:left="${Math.round(2 * charTw)}"/>`;
       body.push(para(nameRun(c, st.ruby !== 'none') + (hasActors ? `<w:r><w:tab/></w:r>${textRuns(c.actor.trim())}` : ''), ppr));
     }
     body.push(pageBreak);
   }
 
+  // メモ・演技の指示は、Word では段落のすぐ下に小さな字で入れる
+  const nsz = Math.round(sz * 0.85);
+  const small = `<w:color w:val="555555"/><w:sz w:val="${nsz}"/><w:szCs w:val="${nsz}"/>`;
+  const extras = (b, indentChars, center = false) => {
+    const ppr = center ? '<w:jc w:val="center"/>' : (indentChars ? `<w:ind w:left="${Math.round(indentChars * charTw)}" w:leftChars="${indentChars * 100}"/>` : '');
+    if (b.memo && b.memo.trim()) body.push(para(textRuns(`［メモ］${b.memo.trim()}`, small), ppr));
+    if (b.note && b.note.trim()) body.push(para(textRuns(`［指示］${b.note.trim()}`, small), ppr));
+  };
+
   let chapterNo = 0;
   let hasContent = false;
   for (const b of script.blocks) {
     switch (b.type) {
       case 'dialogue': {
-        const c = chars.get(b.charId);
-        const n = nameOf(c).length + 1;
+        const sps = speakersOf(b, chars);
+        const n = speakerLabel(b, chars).length + 1;
         const ind = `<w:ind w:left="${Math.round(n * charTw)}" w:leftChars="${n * 100}" w:hanging="${Math.round(n * charTw)}" w:hangingChars="${n * 100}"/>`;
-        body.push(para(nameRun(c, useRuby(b.charId)) + textRuns('「') + textRuns(b.text) + textRuns('」'), ind));
-        if (st.actingNotes && b.note && b.note.trim()) {
-          const nsz = Math.round(sz * 0.85);
-          body.push(para(textRuns(`（${b.note.trim()}）`, `<w:color w:val="555555"/><w:sz w:val="${nsz}"/><w:szCs w:val="${nsz}"/>`),
-            `<w:ind w:left="${Math.round(n * charTw)}" w:leftChars="${n * 100}"/>`));
-        }
+        const names = sps.map((sp, i) => (i ? textRuns('・', '<w:b/>') : '') + (sp.c ? nameRun(sp.c, useRuby(sp.id)) : textRuns(sp.name, '<w:b/>'))).join('');
+        body.push(para((names || textRuns('人物？', '<w:b/>')) + textRuns('「') + textRuns(b.text) + textRuns('」'), ind));
+        extras(b, n);
         break;
       }
       case 'direction': {
         const k = st.directionIndent || 0;
         body.push(para(textRuns(b.text), k ? `<w:ind w:left="${Math.round(k * charTw)}" w:leftChars="${k * 100}"/>` : ''));
+        extras(b, k);
         break;
       }
       case 'situation':
         body.push(para(''));
         body.push(para(textRuns(b.text), '<w:jc w:val="center"/>'));
+        extras(b, 0, true);
         break;
       case 'chapter': {
         chapterNo++;
@@ -157,7 +175,8 @@ export function scriptToDocx(script) {
   const [w, h] = st.orientation === 'landscape' ? [16838, 11906] : [11906, 16838];
   // 演者のメモ欄：その側の余白を広げ、本文との境にページ罫線を1本引く（表紙には付けない）
   const TW = 56.7; // 1mm の twip
-  const { body: box, memo, pos } = pageLayout({ ...st, actingNotes: false }); // Word では指示は（ ）でセリフの下に入れる
+  const { body: box, memo } = pageLayout({ ...st, actingNotes: false }); // Word ではメモ・指示は段落の下に入れ、メモ側の余白だけ空ける
+  const pos = vertical ? 'top' : 'left';
   const mar = { top: Math.round(box.top * TW), bottom: Math.round(box.bottom * TW), left: Math.round(box.left * TW), right: Math.round(box.right * TW) };
   const borders = memo
     ? `<w:pgBorders w:offsetFrom="text"${st.printTitlePage ? ' w:display="notFirstPage"' : ''}><w:${pos} w:val="single" w:sz="6" w:space="12" w:color="555555"/></w:pgBorders>`

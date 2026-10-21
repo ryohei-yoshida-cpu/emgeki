@@ -1,4 +1,5 @@
 // 誤字・脱字・表記ゆれのチェック（端末内で完結するルールベース）
+import { speakerIds, speakerKey, ALL_ID } from './speakers.js';
 
 // [誤, 正, レベル]  level: error(誤字) / warn(要確認) / info(参考：台詞では意図的な場合も)
 const TYPOS = [
@@ -268,11 +269,14 @@ export function runCheck(script, tokenizer = null) {
     }
     if (b.type === 'dialogue') {
       if (!text.trim()) found.push({ rule: 'empty', level: 'warn', start: 0, end: 0, found: '', message: 'セリフが空です（脱字？）', suggestion: null });
-      if (!b.charId || !script.characters.some((c) => c.id === b.charId)) {
+      const ids = speakerIds(b);
+      if (!ids.length || ids.some((id) => id !== ALL_ID && !script.characters.some((c) => c.id === id))) {
         found.push({ rule: 'nochar', level: 'warn', start: 0, end: 0, found: '', message: '話す人物が設定されていません', suggestion: null });
       }
-      if (prev?.type === 'dialogue' && b.charId && prev.charId === b.charId) {
-        const c = script.characters.find((x) => x.id === b.charId);
+      // 同じ「1人の主な人物」が続いたときだけ（全員・複数人・モブなどは続いても自然）
+      const single = ids.length === 1 && ids[0] !== ALL_ID ? script.characters.find((x) => x.id === ids[0]) : null;
+      if (prev?.type === 'dialogue' && single && single.kind !== 'group' && speakerKey(prev) === speakerKey(b)) {
+        const c = single;
         found.push({ rule: 'same-speaker', level: 'warn', start: 0, end: 0, found: '', altCharId: lastOther,
           message: `「${c ? c.name : '同じ人物'}」のセリフが2回続いています。違う人物では？` });
       }
@@ -294,9 +298,10 @@ export function runCheck(script, tokenizer = null) {
       if (ignored.has(ignoreKey)) continue;
       issues.push({ ...f, blockId: b.id, ignoreKey, context: context(text, f.start, f.end) });
     }
-    if (b.type === 'dialogue' && b.charId && b.charId !== lastSpeaker) {
+    const one = b.type === 'dialogue' ? speakerIds(b) : [];
+    if (one.length === 1 && one[0] !== ALL_ID && one[0] !== lastSpeaker) {
       lastOther = lastSpeaker;
-      lastSpeaker = b.charId;
+      lastSpeaker = one[0];
     }
     prev = b;
   }
