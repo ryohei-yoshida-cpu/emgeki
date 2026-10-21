@@ -89,6 +89,18 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   padding: 6px 4px; border-radius: 8px;
 }
 .title-input:focus { outline: none; background: var(--surface); }
+.install-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 3px;
+  height: 34px; padding: 0 10px 0 6px;
+  border-radius: 99px; border: 1px solid var(--accent);
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.install-btn svg { width: 18px; height: 18px; }
+.install-steps { padding-left: 1.4em; margin: 6px 0 14px; font-size: 15px; }
+.install-steps li { margin: 10px 0; }
+.install-steps .key { display: inline-flex; align-items: center; gap: 2px; padding: 1px 8px; border-radius: 6px; background: var(--surface-2); font-weight: 700; }
+.install-steps svg { width: 16px; height: 16px; vertical-align: -3px; }
 .save-status { flex: none; font-size: 11px; color: var(--muted); min-width: 4.5em; text-align: right; }
 .save-status.saving { color: var(--warn); }
 

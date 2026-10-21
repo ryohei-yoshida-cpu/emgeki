@@ -894,6 +894,64 @@ function removeScript() {
   toast('削除しました');
 }
 
+// ============ ホーム画面に追加 ============
+
+let installPrompt = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function updateInstallButton() {
+  $('#btn-install').hidden = isStandalone();
+}
+
+const SHARE_ICON = () => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.innerHTML = '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5v10h14V11h-1"/>';
+  return svg;
+};
+
+async function installApp() {
+  // Android の Chrome などはそのまま追加の確認画面を出せる
+  if (installPrompt) {
+    const p = installPrompt;
+    installPrompt = null;
+    p.prompt();
+    await p.userChoice.catch(() => null);
+    return;
+  }
+  const key = (...c) => h('span', { class: 'key' }, ...c);
+  let steps;
+  if (isIOS()) {
+    steps = [
+      h('li', {}, 'Safari で開いた状態で、画面下（iPadは右上）の共有ボタン ', key(SHARE_ICON()), ' を押します。'),
+      h('li', {}, 'メニューを下へスクロールして ', key('ホーム画面に追加'), ' を押します。'),
+      h('li', {}, '右上の ', key('追加'), ' を押すと、ホーム画面にアイコンができます。'),
+    ];
+  } else {
+    steps = [
+      h('li', {}, 'ブラウザ右上のメニュー ', key('⋮'), ' を開きます。'),
+      h('li', {}, key('ホーム画面に追加'), ' または ', key('アプリをインストール'), ' を押します。'),
+      h('li', {}, '確認画面で ', key('追加'), '（または ', key('インストール'), '）を押します。'),
+    ];
+  }
+  openSheet('ホーム画面に追加',
+    h('p', { class: 'note' }, 'ホーム画面から開くと、アプリのように全画面で使え、電波がなくても書けます。'),
+    h('ol', { class: 'install-steps' }, steps),
+    isIOS() ? h('p', { class: 'note' }, 'Chrome など Safari 以外で開いている場合も、共有ボタンから同じように追加できます（iOS 16.4 以降）。') : null);
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  updateInstallButton();
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  updateInstallButton();
+  toast('ホーム画面に追加しました');
+});
+
 // ============ 起動 ============
 
 function init() {
@@ -906,6 +964,8 @@ function init() {
   $('#title-input').addEventListener('input', (e) => { S.title = e.target.value; markDirty(); });
   $('#title-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) e.target.blur(); });
   $('#btn-undo').addEventListener('click', undo);
+  $('#btn-install').addEventListener('click', installApp);
+  updateInstallButton();
   $('#btn-scripts').addEventListener('click', openScriptList);
   $('#sheet-close').addEventListener('click', closeSheet);
   $('#sheet-backdrop').addEventListener('click', closeSheet);
