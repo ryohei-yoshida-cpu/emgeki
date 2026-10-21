@@ -1,5 +1,5 @@
 // オフライン対応：アプリ本体はキャッシュしつつ裏で更新、辞書とフォントは一度取得したら再利用
-const VERSION = 'v2';
+const VERSION = 'v3';
 const APP_CACHE = `emgeki-app-${VERSION}`;
 const DATA_CACHE = 'emgeki-data-v1';
 const APP_FILES = [

@@ -70,15 +70,20 @@ function undo() {
 // ============ トースト ============
 
 let toastTimer;
-function toast(msg, action) {
+function toast(msg, action, { error = false } = {}) {
   const t = $('#toast');
   t.innerHTML = '';
+  t.classList.toggle('error', error);
+  t.setAttribute('role', error ? 'alert' : 'status');
+  if (error) t.append(h('span', { class: 'toast-icon', 'aria-hidden': 'true' }, '!'));
   t.append(h('span', {}, msg));
   if (action) t.append(h('button', { type: 'button', onclick: () => { t.hidden = true; action.fn(); } }, action.label));
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, action ? 5000 : 2400);
+  toastTimer = setTimeout(() => { t.hidden = true; }, action ? 5000 : error ? 4000 : 2400);
 }
+
+const toastError = (msg) => toast(msg, null, { error: true });
 
 // ============ シート ============
 
@@ -532,12 +537,23 @@ function renderCharacters() {
         h('button', { class: 'mini-btn', type: 'button', 'aria-label': '上へ', disabled: i === 0, onclick: () => moveChar(i, -1) }, '↑'),
         h('button', { class: 'mini-btn', type: 'button', 'aria-label': '下へ', disabled: i === S.characters.length - 1, onclick: () => moveChar(i, 1) }, '↓')),
       h('div', { class: 'card-row' }, h('span', { class: 'lbl' }, 'よみ'), readIn,
-        h('button', { class: 'mini-btn', type: 'button', onclick: () => { c.readingAuto = true; autoReading(c, true); toast('読み仮名を取得しています…'); } }, '自動')),
+        h('button', { class: 'mini-btn', type: 'button', onclick: () => autoReadingButton(c) }, '自動')),
       c.readingIncomplete ? h('div', { class: 'card-row warn-text' }, '一部の漢字が読めませんでした。読みを確認してください。') : null,
       h('div', { class: 'card-row' },
         h('span', { class: 'meta grow' }, `セリフ ${lineCount(c.id)}個`, c.actor ? ` ・ 配役：${c.actor}` : ''),
         h('button', { class: 'mini-btn danger', type: 'button', onclick: () => deleteCharacter(c) }, '削除'))));
   });
+}
+
+function autoReadingButton(c) {
+  if (!hasKanji(c.name)) {
+    const kind = /^[\u3041-\u309F\u30FC\s・]+$/.test(c.name) ? 'ひらがな' : '漢字を含まない名前';
+    toastError(`「${c.name}」は${kind}なので、読み仮名は付けられません`);
+    return;
+  }
+  c.readingAuto = true;
+  autoReading(c, true);
+  toast('読み仮名を取得しています…');
 }
 
 function moveChar(i, d) {

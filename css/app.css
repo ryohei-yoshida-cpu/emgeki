@@ -334,10 +334,16 @@ body.kb-open .tabbar { display: none; }
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 60;
   bottom: calc(var(--tabbar-h) + var(--insert-h) + var(--safe-b) + 16px);
-  max-width: calc(100% - 32px);
+  width: max-content; max-width: calc(100% - 32px);
   display: flex; align-items: center; gap: 12px;
   background: var(--text); color: var(--bg);
   padding: 10px 16px; border-radius: 12px; font-size: 14px; box-shadow: var(--shadow);
+}
+.toast.error { background: var(--err); color: #fff; }
+.toast-icon {
+  flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; color: var(--err); font-weight: 900; font-size: 13px;
 }
 .toast button { border: 0; background: transparent; color: var(--accent-soft); font-weight: 700; padding: 4px; }
 
