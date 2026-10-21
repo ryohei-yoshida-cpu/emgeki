@@ -47,6 +47,9 @@ const TYPOS = [
   ['期待倒れ', '期待外れ', 'warn'],
   ['寸暇を惜しまず', '寸暇を惜しんで', 'warn'],
   ['二の舞を踏', '二の足を踏', 'warn'],
+  ['ごさいます', 'ございます', 'error'],
+  ['ございまう', 'ございます', 'error'],
+  ['くたさい', 'ください', 'error'],
   ['おうきい', 'おおきい', 'error'],
   ['とうり', 'とおり', 'warn'],
   ['とうる', 'とおる', 'warn'],
@@ -211,13 +214,55 @@ function textIssues(text, ctx) {
   return out;
 }
 
-export function runCheck(script) {
+// 形態素解析（kuromoji）の結果から、余分な文字・重複を見つける
+function morphIssues(text, tokens) {
+  const out = [];
+  const pos = (t) => t.word_position - 1;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i], prev = tokens[i - 1], next = tokens[i + 1];
+    const s = t.surface_form;
+    const start = pos(t), end = start + s.length;
+
+    // 「変わるる」「食べるる」：現代語では使わない文語の「る・るる」＝余分な文字
+    if (t.pos === '助動詞' && (s === 'る' || s === 'るる') && prev && prev.pos === '動詞') {
+      const whole = prev.surface_form + s;
+      if (prev.conjugated_form === '基本形') {
+        out.push({ rule: 'extra-char', level: 'error', start, end, message: `「${whole}」の「${s}」が余分では？`, suggestion: '' });
+      } else if (s === 'るる') {
+        out.push({ rule: 'extra-char', level: 'error', start, end, message: `「${whole}」は「${prev.surface_form}る」では？`, suggestion: 'る' });
+      }
+      continue;
+    }
+
+    // 「私はは」「わかったた」：同じ助詞・助動詞が続いている（「ははは」のような3回以上は除く）
+    if (prev && (t.pos === '助詞' || t.pos === '助動詞') && prev.pos === t.pos && prev.surface_form === s
+        && pos(prev) + s.length === start
+        && tokens[i - 2]?.surface_form !== s && next?.surface_form !== s) {
+      out.push({ rule: 'dup-token', level: 'error', start, end, message: `「${s}」が2回続いています`, suggestion: '' });
+      continue;
+    }
+
+    // 「行きまます」：動詞と助動詞の間に紛れ込んだ文字
+    if (t.pos === 'フィラー' && prev?.pos === '動詞' && next?.pos === '助動詞' && s.length <= 2) {
+      out.push({ rule: 'stray-char', level: 'error', start, end, message: `「${prev.surface_form}${s}${next.surface_form}」の「${s}」が余分では？`, suggestion: '' });
+    }
+  }
+  return out.map((x) => ({ ...x, found: text.slice(x.start, x.end) }));
+}
+
+export function runCheck(script, tokenizer = null) {
   const names = script.characters.map((c) => c.name);
   const ignored = new Set(script.ignored);
   const issues = [];
   for (const b of script.blocks) {
     let text = b.text;
     const found = textIssues(text, { names });
+    if (tokenizer && text) {
+      for (const m of morphIssues(text, tokenizer.tokenize(text))) {
+        // 既存のルールと同じ箇所を指摘している場合は重ねない
+        if (!found.some((f) => f.start < m.end && m.start < f.end)) found.push(m);
+      }
+    }
     if (b.type === 'dialogue') {
       if (!text.trim()) found.push({ rule: 'empty', level: 'warn', start: 0, end: 0, found: '', message: 'セリフが空です（脱字？）', suggestion: null });
       if (!b.charId || !script.characters.some((c) => c.id === b.charId)) {

@@ -1,7 +1,7 @@
 // 演劇脚本ノート — 画面とデータのつなぎ込み
 import * as store from './store.js';
 import { renderPages, pageSizePx } from './paginate.js';
-import { getReading, isTokenizerRequested } from './furigana.js';
+import { getReading, isTokenizerRequested, loadTokenizer } from './furigana.js';
 import { runCheck, applyFix, applyAll } from './proofread.js';
 import { FONTS, fontCss, ensureFont } from './fonts.js';
 import { $, $$, h, uid, hasKanji, chapterLabel, countOccurrences, formatDate, safeStorage } from './util.js';
@@ -621,6 +621,24 @@ function chapterOfBlocks() {
 
 // ============ 校正 ============
 
+let checkTokenizer = null;
+
+// 文法的なチェックには辞書が要るので、読み込んでから全体を調べる
+async function startCheck() {
+  const btn = $('#btn-run-check');
+  if (!checkTokenizer) {
+    btn.disabled = true;
+    $('#check-summary').textContent = '辞書を準備しています…（初回は少し時間がかかります）';
+    try {
+      checkTokenizer = await loadTokenizer();
+    } catch {
+      toastError('辞書を読み込めなかったため、簡易チェックのみ行います');
+    }
+    btn.disabled = false;
+  }
+  renderCheck(true);
+}
+
 function renderCheck(run) {
   const list = $('#check-list');
   const sum = $('#check-summary');
@@ -631,7 +649,7 @@ function renderCheck(run) {
     $('#btn-fix-all').hidden = true;
     return;
   }
-  lastIssues = runCheck(S);
+  lastIssues = runCheck(S, checkTokenizer);
   list.innerHTML = '';
   const fixable = lastIssues.filter((x) => x.suggestion != null && x.level !== 'info');
   $('#btn-fix-all').hidden = !fixable.length;
@@ -1000,7 +1018,7 @@ function init() {
     renderCharacters();
   });
 
-  $('#btn-run-check').addEventListener('click', () => renderCheck(true));
+  $('#btn-run-check').addEventListener('click', startCheck);
   $('#btn-fix-all').addEventListener('click', () => {
     pushUndo();
     const n = applyAll(S, lastIssues.filter((x) => x.level !== 'info'));

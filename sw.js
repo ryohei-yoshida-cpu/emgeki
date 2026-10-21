@@ -1,5 +1,5 @@
-// オフライン対応：アプリ本体はキャッシュしつつ裏で更新、辞書とフォントは一度取得したら再利用
-const VERSION = 'v3';
+// オフライン対応：アプリ本体はネット優先（オフライン時はキャッシュ）、辞書とフォントは一度取得したら再利用
+const VERSION = 'v4';
 const APP_CACHE = `emgeki-app-${VERSION}`;
 const DATA_CACHE = 'emgeki-data-v1';
 const APP_FILES = [
@@ -51,11 +51,16 @@ self.addEventListener('fetch', (e) => {
   }
 
   if (url.origin === location.origin) {
-    // アプリ本体：キャッシュを返しつつ裏で最新を取得
+    // アプリ本体：つながっていれば常に最新、オフラインならキャッシュ
     e.respondWith(caches.open(APP_CACHE).then(async (c) => {
-      const hit = await c.match(req, { ignoreSearch: true });
-      const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);
-      return hit || net;
+      try {
+        const res = await fetch(req, { cache: 'no-cache' });
+        if (res.ok) c.put(req, res.clone());
+        return res;
+      } catch {
+        const hit = await c.match(req, { ignoreSearch: true });
+        return hit || Response.error();
+      }
     }));
   }
 });
