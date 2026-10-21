@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#7a2e2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="演劇脚本">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>演劇脚本ノート</title>
+  <meta name="description" content="スマートフォンで演劇の脚本を書いて、A4で印刷できるアプリ">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/app.css">
+  <style id="page-style">@page { size: A4 landscape; margin: 0; }</style>
+</head>
+<body>
+  <header class="topbar no-print">
+    <button id="btn-scripts" class="icon-btn" type="button" aria-label="脚本の一覧">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <input id="title-input" class="title-input" type="text" placeholder="タイトル" aria-label="脚本のタイトル" enterkeyhint="done">
+    <button id="btn-undo" class="icon-btn" type="button" aria-label="元に戻す" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+    </button>
+    <span id="save-status" class="save-status" aria-live="polite">保存済み</span>
+  </header>
+
+  <main id="main">
+    <!-- 脚本 -->
+    <section id="view-editor" class="view no-print" data-view="editor">
+      <div id="editor" class="editor"></div>
+      <div id="editor-empty" class="empty-hint">
+        <p class="empty-title">さあ、書きはじめましょう</p>
+        <p>下のボタンで段落を追加します。</p>
+        <ul>
+          <li><b>セリフ</b>：人物を選ぶと「名前「」」の段落ができます。改行しても同じセリフのままです。</li>
+          <li><b>ト書き</b>：動きや情景の説明。</li>
+          <li><b>シチュエーション</b>：1行あけて中央に配置される行。</li>
+          <li><b>章立て</b>：1章、2章…と自動で番号が付きます。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 登場人物 -->
+    <section id="view-characters" class="view no-print" data-view="characters">
+      <div class="panel">
+        <h2>登場人物</h2>
+        <p class="note">名前はここで一括管理します。ここで名前を変えると、脚本中のすべてのセリフに反映されます。読み仮名は自動で付きます（直接直すこともできます）。</p>
+        <form id="add-char-form" class="add-row">
+          <input id="add-char-name" type="text" placeholder="人物名を入力" aria-label="人物名" enterkeyhint="done" autocomplete="off">
+          <button class="btn primary" type="submit">追加</button>
+        </form>
+        <p id="dict-status" class="note dict-status" hidden></p>
+        <ul id="char-list" class="card-list"></ul>
+      </div>
+    </section>
+
+    <!-- 配役 -->
+    <section id="view-cast" class="view no-print" data-view="cast">
+      <div class="panel">
+        <h2>キャスティング</h2>
+        <p class="note">役と演じる人を紐付けます。配役表は印刷の2ページ目（表紙の次）に入ります。1人で複数の役も演じられます。</p>
+        <ul id="cast-list" class="card-list"></ul>
+        <h3>演者ごとの出番</h3>
+        <div id="actor-summary"></div>
+        <label class="switch-row"><input type="checkbox" data-setting="printCastPage"> 配役表を印刷に含める</label>
+        <button id="btn-cast-preview" class="btn" type="button">配役表をプレビュー</button>
+      </div>
+    </section>
+
+    <!-- 校正 -->
+    <section id="view-check" class="view no-print" data-view="check">
+      <div class="panel">
+        <h2>誤字・脱字チェック</h2>
+        <p class="note">よくある誤字、助詞や句読点の重なり、括弧の閉じ忘れ、人物名の打ち間違い、半角カナなどを調べます。<span class="lv lv-info">参考</span> は台詞の口調として意図的な場合もあります。</p>
+        <div class="row-btns">
+          <button id="btn-run-check" class="btn primary" type="button">チェックする</button>
+          <button id="btn-fix-all" class="btn" type="button" hidden>まとめて修正</button>
+        </div>
+        <p id="check-summary" class="check-summary"></p>
+        <ul id="check-list" class="check-list"></ul>
+        <button id="btn-clear-ignored" class="btn small ghost" type="button" hidden>無視した項目を元に戻す</button>
+      </div>
+    </section>
+
+    <!-- 印刷 -->
+    <section id="view-preview" class="view" data-view="preview">
+      <div class="preview-controls no-print">
+        <div class="seg" role="group" aria-label="書字方向">
+          <button type="button" data-seg="writingMode" data-value="vertical">縦書き</button>
+          <button type="button" data-seg="writingMode" data-value="horizontal">横書き</button>
+        </div>
+        <div class="seg" role="group" aria-label="用紙の向き">
+          <button type="button" data-seg="orientation" data-value="portrait">A4 縦</button>
+          <button type="button" data-seg="orientation" data-value="landscape">A4 横</button>
+        </div>
+        <button id="btn-print" class="btn primary" type="button">印刷 / PDF保存</button>
+        <span id="page-count" class="note"></span>
+      </div>
+      <div id="pages" class="pages"></div>
+    </section>
+
+    <!-- 設定 -->
+    <section id="view-settings" class="view no-print" data-view="settings">
+      <div class="panel">
+        <h2>作品</h2>
+        <label class="field">タイトル<input id="set-title" type="text"></label>
+        <label class="field">作者<input id="set-author" type="text" placeholder="作・〇〇"></label>
+
+        <h2>書式</h2>
+        <label class="field">書字方向
+          <select data-setting="writingMode"><option value="vertical">縦書き</option><option value="horizontal">横書き</option></select>
+        </label>
+        <label class="field">用紙（A4）の向き
+          <select data-setting="orientation"><option value="landscape">横向き</option><option value="portrait">縦向き</option></select>
+        </label>
+        <label class="field">フォント
+          <select id="font-select" data-setting="font"></select>
+        </label>
+        <p id="font-sample" class="font-sample">太郎「今日は、いい天気ですね。」</p>
+        <label class="field">文字の大きさ（pt）
+          <select data-setting="fontSize" data-type="number">
+            <option value="9">9</option><option value="10">10</option><option value="10.5">10.5</option>
+            <option value="11">11</option><option value="12">12</option><option value="14">14</option>
+          </select>
+        </label>
+        <label class="field">行間
+          <select data-setting="lineHeight" data-type="number">
+            <option value="1.5">狭い</option><option value="1.8">ふつう</option><option value="2.1">広い</option>
+          </select>
+        </label>
+        <label class="field">ト書きの位置
+          <select data-setting="directionIndent" data-type="number">
+            <option value="0">上部（字下げなし）</option><option value="2">2字下げ</option><option value="3">3字下げ</option>
+          </select>
+        </label>
+        <label class="field">名前の読み仮名（ルビ）
+          <select data-setting="ruby"><option value="all">毎回ふる</option><option value="first">初登場のみ</option><option value="none">ふらない</option></select>
+        </label>
+        <label class="field">章の表記
+          <select data-setting="chapterFormat"><option value="plain">1章</option><option value="dai">第1章</option><option value="kanji">第一章</option></select>
+        </label>
+        <label class="switch-row"><input type="checkbox" data-setting="chapterPageBreak"> 章ごとに改ページ（章を右上に置く）</label>
+
+        <h2>印刷</h2>
+        <label class="switch-row"><input type="checkbox" data-setting="printTitlePage"> 表紙を付ける</label>
+        <label class="switch-row"><input type="checkbox" data-setting="printCastPage"> 配役表を付ける</label>
+        <label class="switch-row"><input type="checkbox" data-setting="pageNumbers"> ページ番号</label>
+
+        <h2>読み仮名</h2>
+        <label class="switch-row"><input type="checkbox" data-setting="autoReading"> 名前の読み仮名を自動で付ける</label>
+        <p class="note">初回のみ辞書（約18MB）を読み込みます。以降はオフラインでも使えます。</p>
+
+        <h2>データ</h2>
+        <p class="note">入力内容はこの端末に自動保存されます（画面を閉じても、アプリを終了しても残ります）。機種変更や念のための保管には書き出しを使ってください。</p>
+        <div class="row-btns wrap">
+          <button id="btn-export" class="btn" type="button">バックアップを書き出す</button>
+          <button id="btn-import" class="btn" type="button">バックアップを読み込む</button>
+          <button id="btn-export-txt" class="btn" type="button">テキストで書き出す</button>
+        </div>
+        <input id="import-file" type="file" accept=".json,application/json" hidden>
+      </div>
+    </section>
+  </main>
+
+  <!-- 挿入ボタン（脚本タブのみ） -->
+  <div id="insertbar" class="insertbar no-print" role="toolbar" aria-label="段落の追加">
+    <button type="button" data-insert="dialogue" class="ins ins-dialogue"><span class="ins-ico">「」</span>セリフ</button>
+    <button type="button" data-insert="direction" class="ins"><span class="ins-ico">ト</span>ト書き</button>
+    <button type="button" data-insert="situation" class="ins"><span class="ins-ico">≡</span>シチュエーション</button>
+    <button type="button" data-insert="chapter" class="ins"><span class="ins-ico">章</span>章立て</button>
+  </div>
+
+  <nav class="tabbar no-print" aria-label="画面切り替え">
+    <button type="button" data-tab="editor"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>脚本</button>
+    <button type="button" data-tab="characters"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/></svg>人物</button>
+    <button type="button" data-tab="cast"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v6a7 7 0 0 1-14 0z"/><path d="M9 9h.01M15 9h.01M9 13c1.5 1.3 4.5 1.3 6 0"/></svg>配役</button>
+    <button type="button" data-tab="check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>校正</button>
+    <button type="button" data-tab="preview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V3h10v5"/><rect x="3" y="8" width="18" height="9" rx="1.5"/><path d="M7 14h10v7H7z"/></svg>印刷</button>
+    <button type="button" data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>設定</button>
+  </nav>
+
+  <div id="sheet-backdrop" class="sheet-backdrop no-print" hidden></div>
+  <div id="sheet" class="sheet no-print" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+    <div class="sheet-head">
+      <h2 id="sheet-title"></h2>
+      <button id="sheet-close" class="icon-btn" type="button" aria-label="閉じる"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div id="sheet-body" class="sheet-body"></div>
+  </div>
+
+  <div id="toast" class="toast no-print" role="status" hidden></div>
+  <div id="measure" class="measure" aria-hidden="true"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
