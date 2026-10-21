@@ -940,16 +940,30 @@ function importJson(e) {
 
 // ============ 脚本の一覧 ============
 
-function openScriptList() {
+async function openScriptList() {
   flush();
+  // PDFモードで読み込んだ脚本も、ふつうの脚本と一緒に並べる（開くとPDFで表示）
+  let pdfs = [];
+  try { pdfs = (await listPdfs()).filter((p) => !p.scriptId); } catch { /* PDF が読めなくても脚本の一覧は出す */ }
+  const entries = [
+    ...store.listScripts().map((m) => ({ kind: 'script', id: m.id, title: m.title, at: m.updatedAt })),
+    ...pdfs.map((p) => ({ kind: 'pdf', id: p.id, title: p.name, at: p.addedAt, pages: p.pages })),
+  ].sort((a, b) => b.at - a.at);
   const list = h('ul', { class: 'menu-list' });
-  for (const meta of store.listScripts()) {
-    const isCur = meta.id === S.id;
+  for (const e of entries) {
+    const isCur = e.kind === 'script' && e.id === S.id;
     list.append(h('li', {}, h('button', {
       type: 'button',
       class: 'script-item' + (isCur ? ' current' : ''),
-      onclick: () => { closeSheet(); if (!isCur) openScript(meta.id); },
-    }, meta.title || '無題', h('span', { class: 'sub' }, formatDate(meta.updatedAt)))));
+      onclick: () => {
+        closeSheet();
+        if (e.kind === 'pdf') openPdfViewer(e.id);
+        else if (!isCur) openScript(e.id);
+      },
+    },
+    e.kind === 'pdf' ? h('span', { class: 'pdf-badge' }, 'PDF') : null,
+    e.title || '無題',
+    h('span', { class: 'sub' }, e.kind === 'pdf' ? `${e.pages}ページ・${formatDate(e.at)}` : formatDate(e.at)))));
   }
   const actions = h('div', { class: 'row-btns wrap' },
     h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); createScript(); } }, '＋ 新しい脚本'),
@@ -1060,8 +1074,10 @@ async function onPdfChosen(e) {
     pdf.destroy();
     closeSheet();
     if (!(await storePdf(rec))) return;
-    toast('PDFを保存しました。右上の「⋯」からいつでも読めます');
-    openPdfViewer(rec.id);
+    openSheet('PDFを読み込みました',
+      h('p', {}, `「${rec.name}」を読み込みました。左上の ☰ の「脚本を切り替える」と、右上の「⋯」から、いつでも開けます。`),
+      storageWarning(),
+      h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); openPdfViewer(rec.id); } }, 'PDFを開く')));
     return;
   }
 
@@ -1111,6 +1127,14 @@ async function onPdfChosen(e) {
   showPdfImportResult(parsed.report, saved ? rec : null);
 }
 
+// 取り込んだPDFは端末のブラウザ内に保存しているので、消える条件を知らせる
+function storageWarning() {
+  return h('div', { class: 'warn-box' },
+    '⚠ このPDFはアプリの中にコピーして保存しています。元のファイルを移動・削除しても表示できますが、',
+    h('b', {}, 'ブラウザの閲覧データ（サイトデータ）を消去したり、ホーム画面に追加したアプリを削除すると表示されなくなる'),
+    'ため、注意してください。元のPDFは手元にも残しておくと安心です。');
+}
+
 function scriptFromPdf(parsed, extracted, fallbackTitle) {
   const s = store.newScript(parsed.title || fallbackTitle);
   s.author = parsed.author || '';
@@ -1135,6 +1159,7 @@ function showPdfImportResult(r, rec) {
     h('div', { class: 'warn-box' },
       '⚠ PDFからの取り込みは完全ではありません。レイアウトが崩れたり、名前・セリフ・ト書きの区別が正しくない箇所があるかもしれません。',
       rec ? '元のPDFと見比べて確認してください。' : '内容を確認してください。'),
+    rec ? storageWarning() : null,
     r.dialogues === 0 ? h('p', { class: 'warn-text' }, 'セリフの形（「名前「セリフ」」「名前　セリフ」など）を見つけられなかったため、すべてト書きとして取り込んでいます。') : null,
     h('ul', { class: 'result-list' },
       h('li', {}, `${r.pages}ページを読み取りました（${r.vertical ? '縦書き' : '横書き'}として判定）`),
