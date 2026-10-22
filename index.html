@@ -16,6 +16,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="css/app.css">
+  <script>
+    // 表示の色（白・生成り・ダーク）は、描画前に当てて画面のちらつきを防ぐ
+    try { const t = localStorage.getItem('emgeki:theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) { /* 保存できない環境では端末に合わせる */ }
+  </script>
   <style id="page-style">@page { size: A4 landscape; margin: 0; }</style>
 </head>
 <body>
@@ -119,6 +123,17 @@
         <h2>作品</h2>
         <label class="field">タイトル<input id="set-title" type="text"></label>
         <label class="field">作者<input id="set-author" type="text" placeholder="作・〇〇"></label>
+
+        <h2>画面の色</h2>
+        <label class="field">表示の色（この端末だけの設定）
+          <select id="theme-select">
+            <option value="">端末の設定に合わせる</option>
+            <option value="white">白い背景・黒い文字</option>
+            <option value="light">生成り（クリーム色）</option>
+            <option value="dark">黒い背景（ダーク）</option>
+          </select>
+        </label>
+        <p class="note">印刷・PDF の紙面は、いつも白い紙に黒い文字です。</p>
 
         <h2>脚本画面（書くとき）</h2>
         <label class="field">書く向き

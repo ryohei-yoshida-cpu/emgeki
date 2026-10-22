@@ -965,7 +965,23 @@ function updateFontSample() {
   ensureFont(S.settings.font);
 }
 
+// 表示の色は脚本ごとではなく、この端末の好みとして覚える
+const THEME_COLORS = { white: '#ffffff', light: '#7a2e2e', dark: '#1b1817' };
+function applyTheme(theme) {
+  if (theme) document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  $('meta[name="theme-color"]').setAttribute('content', THEME_COLORS[theme] || '#7a2e2e');
+}
+
 function bindSettings() {
+  const themeSel = $('#theme-select');
+  themeSel.value = safeStorage(() => localStorage.getItem('emgeki:theme'), '') || '';
+  applyTheme(themeSel.value);
+  themeSel.addEventListener('change', () => {
+    safeStorage(() => (themeSel.value ? localStorage.setItem('emgeki:theme', themeSel.value) : localStorage.removeItem('emgeki:theme')));
+    applyTheme(themeSel.value);
+  });
+
   const sel = $('#font-select');
   for (const f of FONTS) sel.append(h('option', { value: f.id }, f.label));
 
