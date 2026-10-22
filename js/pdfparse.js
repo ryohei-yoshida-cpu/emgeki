@@ -101,7 +101,7 @@ export function pageToLines(items, pageWidth, pageHeight, vertical) {
 // ---------- 2. 行 → 脚本 ----------
 
 const PAGE_NUM_RE = /^[\s\-－–—ー]*[0-9０-９]+[\s\-－–—ー]*$/;
-const CHAPTER_RE = /^(?:第\s*)?([0-9０-９]+|[一二三四五六七八九十百〇]+)\s*(章|場|幕|景)\s*(.*)$/;
+export const CHAPTER_RE = /^(?:第\s*)?([0-9０-９]+|[一二三四五六七八九十百〇]+)\s*(章|場|幕|景)\s*(.*)$/;
 const CAST_HEAD_RE = /^(配\s*役|登\s*場\s*人\s*物|キャスト|CAST|Cast)\s*$/;
 const NOTE_RE = /^[（(](.+)[)）]$/;
 const BAD_NAME_END = /[はがをにとのもへでや、。！？…]$/;

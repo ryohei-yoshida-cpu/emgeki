@@ -8,6 +8,7 @@ import { scriptToText, scriptToDocx } from './export.js';
 import { savePdf, getPdf, deletePdf, listPdfs } from './pdfstore.js';
 import { openPdf, extractPages } from './pdfjs.js';
 import { parsePages } from './pdfparse.js';
+import { parseScriptLines, textToLines, docxToLines } from './textparse.js';
 import { ALL_ID, GROUP_KINDS, speakerIds, setSpeakers, speakersOf, speakerLabel, inCastList } from './speakers.js';
 import { $, $$, h, uid, hasKanji, chapterLabel, countOccurrences, formatDate, safeStorage } from './util.js';
 
@@ -1040,21 +1041,34 @@ function exportDocx() {
   download(`${fileBase()}.docx`, scriptToDocx(S));
 }
 
+// このアプリのデータ（バックアップ）なら読み込んで true。違う中身なら false
+function tryImportAppData(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { return false; }
+  if (!data || !Array.isArray(data.blocks)) return false;
+  openNewScript(store.normalize({ ...data, id: uid() }));
+  toast(`「${S.title}」を読み込みました`);
+  return true;
+}
+
+function openNewScript(s) {
+  flush();
+  S = s;
+  try { store.saveScript(S); } catch { toastError('脚本を保存できませんでした（端末の空き容量を確認してください）'); }
+  undoStack = [];
+  lastIssues = [];
+  currentBlockId = null;
+  $('#btn-undo').disabled = true;
+  refreshAll();
+  setView('editor');
+}
+
 function importJson(e) {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
   file.text().then((text) => {
-    const data = JSON.parse(text);
-    if (!data || !Array.isArray(data.blocks)) throw new Error('形式が違います');
-    const s = store.normalize({ ...data, id: uid() });
-    flush();
-    S = s;
-    store.saveScript(S);
-    undoStack = [];
-    lastIssues = [];
-    refreshAll();
-    toast(`「${S.title}」を読み込みました`);
+    if (!tryImportAppData(text)) throw new Error('形式が違います');
   }).catch(() => toastError('読み込めませんでした（このアプリのバックアップファイルを選んでください）'));
 }
 
@@ -1090,6 +1104,10 @@ async function openScriptList() {
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); duplicateScript(); } }, '複製'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFから読み込む'),
     h('button', { class: 'btn danger', type: 'button', onclick: () => { closeSheet(); removeScript(); } }, 'この脚本を削除'));
+  const sourceBtn = S.sourcePdfId
+    ? h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfViewer(S.sourcePdfId); } }, '元のPDFを見る')
+    : null;
+  if (sourceBtn) actions.append(sourceBtn);
   const exportRow = h('div', { class: 'row-btns wrap' },
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportText(); } }, 'テキスト（.txt）'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); exportDocx(); } }, 'Word（.docx）'));
@@ -1153,9 +1171,9 @@ function openPdfImportChooser() {
   }, h('b', {}, title), h('span', {}, desc), warn ? h('span', { class: 'warn' }, warn) : null);
   openSheet('過去の脚本をPDFから読み込む',
     card('view', 'PDFモード（そのまま読む）',
-      '元のPDFをこの端末に保存します。右上の「⋯」からいつでも開いて読めます。内容の編集はできません。'),
+      '元のPDFをこの端末に保存します。左上の ☰ の「脚本を切り替える」からいつでも開いて読めます。内容の編集はできません。'),
     card('edit', 'PDF＋修正モード（取り込んで編集する）',
-      'PDFの文字を読み取り、セリフ・ト書き・章・人物を新しい脚本として取り込みます。元のPDFも保存され、右上の「⋯」から見比べられます。',
+      'PDFの文字を読み取り、セリフ・ト書き・章・人物を新しい脚本として取り込みます。元のPDFも保存され、左上の ☰ の「元のPDFを見る」から見比べられます。',
       '⚠ レイアウトが崩れたり、名前やセリフが正しく取り込めない場合があります。取り込み後に内容を確認してください。'));
 }
 
@@ -1174,7 +1192,10 @@ async function onPdfChosen(e) {
   e.target.value = '';
   if (!file) return;
   if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { toastError('PDFファイルを選んでください'); return; }
-  const mode = pdfImportMode;
+  processPdfFile(file, pdfImportMode);
+}
+
+async function processPdfFile(file, mode) {
   const bar = h('div');
   const msg = h('p', { class: 'note' }, 'PDFを開いています…');
   openSheet(mode === 'edit' ? 'PDFを取り込んでいます' : 'PDFを読み込んでいます', msg, h('div', { class: 'progress' }, bar));
@@ -1196,7 +1217,7 @@ async function onPdfChosen(e) {
     closeSheet();
     if (!(await storePdf(rec))) return;
     openSheet('PDFを読み込みました',
-      h('p', {}, `「${rec.name}」を読み込みました。左上の ☰ の「脚本を切り替える」と、右上の「⋯」から、いつでも開けます。`),
+      h('p', {}, `「${rec.name}」を読み込みました。左上の ☰ の「脚本を切り替える」から、いつでも開けます。`),
       storageWarning(),
       h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); openPdfViewer(rec.id); } }, 'PDFを開く')));
     return;
@@ -1235,17 +1256,9 @@ async function onPdfChosen(e) {
   const saved = await storePdf(rec);
   if (!saved) s.sourcePdfId = null;
 
-  flush();
-  S = s;
-  try { store.saveScript(S); } catch { toastError('脚本を保存できませんでした（端末の空き容量を確認してください）'); }
-  undoStack = [];
-  lastIssues = [];
-  currentBlockId = null;
-  $('#btn-undo').disabled = true;
-  refreshAll();
-  setView('editor');
+  openNewScript(s);
   S.characters.forEach((c) => { if (!c.reading) autoReading(c); });
-  showPdfImportResult(parsed.report, saved ? rec : null);
+  showImportResult('PDF', parsed.report, saved ? rec : null);
 }
 
 // 取り込んだPDFは端末のブラウザ内に保存しているので、消える条件を知らせる
@@ -1259,8 +1272,10 @@ function storageWarning() {
 function scriptFromPdf(parsed, extracted, fallbackTitle) {
   const s = store.newScript(parsed.title || fallbackTitle);
   s.author = parsed.author || '';
-  s.settings.writingMode = parsed.report.vertical ? 'vertical' : 'horizontal';
-  s.settings.orientation = extracted.landscape ? 'landscape' : 'portrait';
+  if (extracted) { // PDF のときは、元の向きに合わせる
+    s.settings.writingMode = parsed.report.vertical ? 'vertical' : 'horizontal';
+    s.settings.orientation = extracted.landscape ? 'landscape' : 'portrait';
+  }
   if (parsed.report.notes) s.settings.actingNotes = true;
   if (parsed.report.memos) s.settings.memoArea = 'medium';
   // 「全員」「教授・裕二」のような話者は、人物を増やさず全員・複数人として扱う
@@ -1284,16 +1299,16 @@ function scriptFromPdf(parsed, extracted, fallbackTitle) {
   return s;
 }
 
-function showPdfImportResult(r, rec) {
+function showImportResult(source, r, rec) {
   const names = S.characters.map((c) => c.name).join('、');
-  openSheet('PDFから取り込みました',
+  openSheet(`${source}から取り込みました`,
     h('div', { class: 'warn-box' },
-      '⚠ PDFからの取り込みは完全ではありません。レイアウトが崩れたり、名前・セリフ・ト書きの区別が正しくない箇所があるかもしれません。',
-      rec ? '元のPDFと見比べて確認してください。' : '内容を確認してください。'),
+      `⚠ ${source}からの取り込みは完全ではありません。レイアウトが崩れたり、名前・セリフ・ト書きの区別が正しくない箇所があるかもしれません。`,
+      rec ? '元のPDFと見比べて確認してください（左上の ☰ の「元のPDFを見る」からも開けます）。' : '内容を確認してください。'),
     rec ? storageWarning() : null,
     r.dialogues === 0 ? h('p', { class: 'warn-text' }, 'セリフの形（「名前「セリフ」」「名前　セリフ」など）を見つけられなかったため、すべてト書きとして取り込んでいます。') : null,
     h('ul', { class: 'result-list' },
-      h('li', {}, `${r.pages}ページを読み取りました（${r.vertical ? '縦書き' : '横書き'}として判定）`),
+      r.pages ? h('li', {}, `${r.pages}ページを読み取りました（${r.vertical ? '縦書き' : '横書き'}として判定）`) : null,
       h('li', {}, `人物：${S.characters.length}人${names ? `（${names}）` : ''}`),
       h('li', {}, `セリフ：${r.dialogues}・ト書き：${r.directions}・章：${r.chapters}・シチュエーション：${r.situations}`),
       r.notes ? h('li', {}, `演技の指示：${r.notes}（設定の「演技の指示」をオンにしました）`) : null,
@@ -1303,22 +1318,91 @@ function showPdfImportResult(r, rec) {
       h('button', { class: 'btn primary', type: 'button', onclick: closeSheet }, '確認する')));
 }
 
-// ============ 右上の ⋯ メニュー：共有書き出しと、取り込んだPDF ============
+// ============ 右上の「共有」：共有書き出し・共有取り込み ============
 
-async function openMoreMenu() {
+function openShareMenu() {
   flush();
-  let pdfPart = [];
-  try {
-    pdfPart = await pdfLibraryContent();
-  } catch {
-    pdfPart = [h('p', { class: 'note' }, '保存したPDFを読み込めませんでした。')];
-  }
-  openSheet('メニュー',
+  openSheet('共有',
     h('button', { class: 'mode-card share-card', type: 'button', onclick: openShareSheet },
       h('b', {}, '共有書き出し（LINE・ドライブ保存）'),
       h('span', {}, 'この脚本をファイルにして、LINE で送ったり、Google ドライブ・MEGA などの好きな場所に保存したりできます。')),
-    h('p', { class: 'sheet-label' }, '取り込んだPDF'),
-    ...pdfPart);
+    h('button', { class: 'mode-card', type: 'button', onclick: openShareImport },
+      h('b', {}, '共有取り込み'),
+      h('span', {}, 'LINE で受け取ったファイルや、ドライブ・MEGA に保存したファイルを、新しい脚本として取り込みます。')));
+}
+
+function openShareImport() {
+  const android = /Android/i.test(navigator.userAgent);
+  openSheet('共有取り込み',
+    h('p', {}, '取り込むファイルを選んでください。今の脚本はそのまま残り、新しい脚本として追加されます。'),
+    h('ul', { class: 'result-list' },
+      h('li', {}, h('b', {}, 'このアプリのデータ'), '（.json／共有で .txt になったものも可）…そのまま元どおりに開けます'),
+      h('li', {}, h('b', {}, 'Word（.docx）・テキスト（.txt）'), '…文字を読み取って取り込みます'),
+      h('li', {}, h('b', {}, 'PDF'), '…PDFモード／PDF＋修正モードを選べます')),
+    h('div', { class: 'warn-box' }, '⚠ Word・テキスト・PDF からの取り込みは、レイアウトが崩れたり、名前やセリフが正しく取り込めない場合があります。'),
+    h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', type: 'button', onclick: () => $('#share-file').click() }, 'ファイルを選ぶ')),
+    h('p', { class: 'note' }, android
+      ? 'LINE で受け取ったファイルは、LINE のファイルを開いて共有ボタン →「演劇脚本」を選ぶと、直接取り込めます（ホーム画面に追加している場合）。'
+      : 'LINE で受け取ったファイルは、いったん「"ファイル"に保存」してから、ここで選んでください。ドライブ・MEGA のファイルは、選ぶ画面の「ブラウズ」などから開けます。'));
+}
+
+async function importSharedFile(file) {
+  const name = file.name || '共有された脚本';
+  const lower = name.toLowerCase();
+  const base = name.replace(/\.(emgeki\.)?(json|txt|docx|pdf)$/i, '') || '共有された脚本';
+  closeSheet();
+  try {
+    if (lower.endsWith('.pdf') || file.type === 'application/pdf') {
+      chooseSharedPdfMode(file);
+      return;
+    }
+    if (lower.endsWith('.docx')) {
+      const lines = await docxToLines(await file.arrayBuffer());
+      importParsed('Word', parseScriptLines(lines), base);
+      return;
+    }
+    if (/\.(json|txt)$/.test(lower) || (file.type || '').startsWith('text/') || file.type === 'application/json') {
+      const text = await file.text();
+      if (tryImportAppData(text)) return;
+      if (lower.endsWith('.json')) { toastError('このアプリのデータではないため、読み込めませんでした'); return; }
+      importParsed('テキスト', parseScriptLines(textToLines(text)), base);
+      return;
+    }
+    toastError('対応していないファイルです（このアプリのデータ・Word・テキスト・PDFを選んでください）');
+  } catch {
+    toastError('ファイルを読み込めませんでした（壊れていないか確認してください）');
+  }
+}
+
+function chooseSharedPdfMode(file) {
+  const card = (mode, title, desc) => h('button', { class: 'mode-card', type: 'button', onclick: () => { closeSheet(); processPdfFile(file, mode); } }, h('b', {}, title), h('span', {}, desc));
+  openSheet('PDFの取り込み方',
+    card('view', 'PDFモード（そのまま読む）', 'PDFを保存して読むだけです。'),
+    card('edit', 'PDF＋修正モード（取り込んで編集する）', '文字を読み取って脚本として取り込みます。レイアウトが崩れることがあります。'));
+}
+
+function importParsed(source, parsed, fallbackTitle) {
+  if (!parsed.blocks.length) { toastError('脚本の内容を読み取れませんでした'); return; }
+  openNewScript(scriptFromPdf(parsed, null, fallbackTitle));
+  S.characters.forEach((c) => { if (!c.reading) autoReading(c); });
+  showImportResult(source, parsed.report, null);
+}
+
+// Android：LINE などの共有メニューから送られたファイル（サービスワーカーが一時保存）を取り込む
+async function receiveSharedFile() {
+  if (!new URLSearchParams(location.search).has('shared')) return;
+  history.replaceState(null, '', location.pathname);
+  try {
+    const cache = await caches.open('emgeki-share');
+    const res = await cache.match('shared-file');
+    if (!res) { toastError('共有されたファイルが見つかりませんでした'); return; }
+    await cache.delete('shared-file');
+    const name = decodeURIComponent(res.headers.get('X-File-Name') || 'shared.txt');
+    const blob = await res.blob();
+    importSharedFile(new File([blob], name, { type: blob.type }));
+  } catch {
+    toastError('共有されたファイルを読み込めませんでした');
+  }
 }
 
 const SHARE_FORMATS = {
@@ -1410,24 +1494,6 @@ async function saveScriptFileAs(file) {
     closeSheet();
     downloadBlob(file.name, file);
   }
-}
-
-async function pdfLibraryContent() {
-  const list = await listPdfs();
-  const mine = list.filter((p) => p.id === S.sourcePdfId || p.scriptId === S.id);
-  const others = list.filter((p) => !mine.includes(p));
-  const ul = (items) => h('ul', { class: 'menu-list' }, items.map((p) => h('li', {}, h('button', {
-    type: 'button',
-    onclick: () => { closeSheet(); openPdfViewer(p.id); },
-  }, p.name, h('span', { class: 'sub' }, `${p.pages}ページ・${formatDate(p.addedAt)}`)))));
-  return [
-    mine.length ? h('p', { class: 'note' }, 'この脚本の元のPDF') : null,
-    mine.length ? ul(mine) : null,
-    others.length && mine.length ? h('p', { class: 'note' }, 'そのほかのPDF') : null,
-    others.length ? ul(others) : null,
-    list.length ? null : h('p', { class: 'note' }, 'まだPDFはありません。下のボタンから過去の脚本のPDFを読み込めます。'),
-    h('div', { class: 'row-btns' }, h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFを読み込む')),
-  ].filter(Boolean);
 }
 
 // ---- PDF ビューア ----
@@ -1605,7 +1671,8 @@ function init() {
   $('#title-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) e.target.blur(); });
   $('#btn-undo').addEventListener('click', undo);
   $('#btn-install').addEventListener('click', installApp);
-  $('#btn-more').addEventListener('click', openMoreMenu);
+  $('#btn-more').addEventListener('click', openShareMenu);
+  $('#share-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importSharedFile(f); });
   $('#btn-import-pdf').addEventListener('click', openPdfImportChooser);
   $('#pdf-file').addEventListener('change', onPdfChosen);
   $('#pdf-close').addEventListener('click', () => closePdfViewer());
@@ -1652,6 +1719,7 @@ function init() {
   const saved = safeStorage(() => localStorage.getItem('emgeki:view'), null);
   setView(saved && $(`.view[data-view="${saved}"]`) ? saved : 'editor');
 
+  receiveSharedFile();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
