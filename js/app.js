@@ -9,7 +9,7 @@ import { savePdf, getPdf, deletePdf, listPdfs } from './pdfstore.js';
 import { openPdf, extractPages } from './pdfjs.js';
 import { parsePages } from './pdfparse.js';
 import { parseScriptLines, textToLines, docxToLines } from './textparse.js';
-import { ALL_ID, GROUP_KINDS, speakerIds, setSpeakers, speakersOf, speakerLabel, inCastList } from './speakers.js';
+import { ALL_ID, GROUP_KINDS, speakerIds, setSpeakers, speakersOf, speakerLabel, inCastList, NAME_TOKEN_RE, nameToken, resolveNames, tokensToDisplay, displayToTokens } from './speakers.js';
 import { $, $$, h, uid, hasKanji, chapterLabel, countOccurrences, formatDate, safeStorage } from './util.js';
 
 let S = null;            // 編集中の脚本
@@ -166,12 +166,16 @@ function extraFields(b) {
     if (!b[kind] && !editing) return null;
     return h('div', { class: `blk-sub sub-${kind}` },
       h('span', { class: 'sub-label' }, EXTRA[kind].label),
-      h('textarea', { class: 'blk-extra', rows: 1, placeholder: EXTRA[kind].placeholder, value: b[kind] || '', 'aria-label': EXTRA[kind].label, dataset: { kind } }));
+      h('textarea', { class: 'blk-extra', rows: 1, placeholder: EXTRA[kind].placeholder, value: shown(b[kind] || ''), 'aria-label': EXTRA[kind].label, dataset: { kind } }));
   });
 }
 
+// 本文の人物名リンク《@ID》は、書く画面では《名前》として見せる
+const shown = (text) => tokensToDisplay(text, charMap());
+const stored = (text) => displayToTokens(text, S.characters);
+
 function textArea(b, placeholder) {
-  return h('textarea', { class: 'blk-text', rows: 1, placeholder, value: b.text, enterkeyhint: 'enter' });
+  return h('textarea', { class: 'blk-text', rows: 1, placeholder, value: shown(b.text), enterkeyhint: 'enter' });
 }
 
 function blockEl(b, chapNums) {
@@ -196,7 +200,7 @@ function blockEl(b, chapNums) {
     case 'chapter':
       return h('div', { class: 'blk blk-chapter', 'data-id': b.id },
         h('span', { class: 'chap-label' }, chapterLabel(chapNums.get(b.id), S.settings.chapterFormat)),
-        h('input', { class: 'blk-text', type: 'text', placeholder: '章タイトル（任意）', value: b.text, enterkeyhint: 'done' }),
+        h('input', { class: 'blk-text', type: 'text', placeholder: '章タイトル（任意）', value: shown(b.text), enterkeyhint: 'done' }),
         more);
   }
   return h('div');
@@ -451,6 +455,38 @@ function openBlockMenu(id) {
 }
 
 // メモ・演技の指示を追加。印刷にそのスペースが無ければ付ける
+// ---- 本文に人物名（リンク）を入れる ----
+let lastField = null; // 最後に書いていた欄（ボタンを押すとフォーカスが外れることがあるので覚えておく）
+
+function openNameInsert() {
+  const active = document.activeElement;
+  const field = active && active.matches('#editor .blk-text, #editor .blk-extra') ? active : (lastField && lastField.isConnected ? lastField : null);
+  if (!field) { toastError('名前を入れたい場所（セリフなど）をタップしてから押してください'); return; }
+  const start = field.selectionStart ?? field.value.length;
+  const end = field.selectionEnd ?? start;
+  const insert = (c) => {
+    closeSheet();
+    const text = `《${c.name}》`;
+    field.value = field.value.slice(0, start) + text + field.value.slice(end);
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(start + text.length, start + text.length);
+    field.dispatchEvent(new Event('input', { bubbles: true })); // 保存はふだんの入力と同じ流れで
+  };
+  const grid = h('div', { class: 'pick-grid' }, S.characters.map((c) => h('button', {
+    class: 'pick', type: 'button', style: `--c:${c.color}`, onclick: () => insert(c),
+  }, h('span', { class: 'nm' }, c.name), h('span', { class: 'rd' }, c.reading || ' '))));
+  const input = h('input', { type: 'text', placeholder: '新しい人物の名前', enterkeyhint: 'done', autocomplete: 'off' });
+  openSheet('本文に名前を入れる',
+    h('p', { class: 'note' }, '《名前》の形で入ります。あとで「人物」タブで名前を変えると、ここも自動で変わります（印刷では《》は付きません）。'),
+    S.characters.length ? grid : h('p', { class: 'note' }, 'まだ人物がいません。'),
+    h('form', { class: 'add-row', onsubmit: (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      insert(S.characters.find((x) => x.name === name) || addCharacter(name));
+    } }, input, h('button', { class: 'btn primary', type: 'submit' }, '追加して入れる')));
+}
+
 function addExtra(id, kind) {
   extraEditing = { id, kind };
   if (kind === 'note' && !S.settings.actingNotes) {
@@ -495,20 +531,21 @@ function bindEditor() {
     const extra = e.target.closest('.blk-extra');
     if (extra) {
       const nb = S.blocks.find((x) => x.id === extra.closest('.blk').dataset.id);
-      if (nb) { nb[extra.dataset.kind] = extra.value; autosize(extra); markDirty(); }
+      if (nb) { nb[extra.dataset.kind] = stored(extra.value); autosize(extra); markDirty(); }
       return;
     }
     const field = e.target.closest('.blk-text');
     if (!field) return;
     const b = S.blocks.find((x) => x.id === field.closest('.blk').dataset.id);
     if (!b) return;
-    b.text = field.value;
+    b.text = stored(field.value);
     autosize(field);
     markDirty();
   });
   ed.addEventListener('focusin', (e) => {
     const blk = e.target.closest('.blk');
     if (blk) currentBlockId = blk.dataset.id;
+    if (e.target.matches('.blk-text, .blk-extra')) lastField = e.target;
   });
   // 空のまま離れた指示欄はしまう
   ed.addEventListener('focusout', (e) => {
@@ -553,6 +590,7 @@ function bindEditor() {
     const btn = e.target.closest('[data-insert]');
     if (!btn) return;
     const type = btn.dataset.insert;
+    if (type === 'name') { openNameInsert(); return; }
     if (type === 'dialogue') {
       document.activeElement?.blur?.();
       openCharPicker({ title: '話す人物を選ぶ', onPick: (ids) => insertBlock('dialogue', { ids }) });
@@ -654,9 +692,11 @@ function renameCharacter(c, newName) {
   if (!newName || newName === old) return false;
   pushUndo();
   c.name = newName;
-  const hits = S.blocks.reduce((n, b) => n + countOccurrences(b.text, old), 0);
-  if (hits > 0 && confirm(`本文（セリフ・ト書き）の中の「${old}」${hits}箇所も「${newName}」に置き換えますか？`)) {
-    for (const b of S.blocks) b.text = b.text.split(old).join(newName);
+  // 名前リンク《@ID》で入れた名前は自動で変わる。手で打った名前は、確認してからリンクに置き換える
+  const fields = ['text', 'note', 'memo'];
+  const hits = S.blocks.reduce((n, b) => n + fields.reduce((m, f) => m + countOccurrences(b[f] || '', old), 0), 0);
+  if (hits > 0 && confirm(`本文・メモ・指示の中に、手で書いた「${old}」が${hits}箇所あります。これも「${newName}」に変えますか？\n（変えた箇所は名前リンクになり、次からは自動で変わります）`)) {
+    for (const b of S.blocks) for (const f of fields) if (b[f]) b[f] = b[f].split(old).join(nameToken(c.id));
   }
   if (c.readingAuto) autoReading(c);
   markDirty();
@@ -669,6 +709,9 @@ function deleteCharacter(c) {
   const msg = n ? `「${c.name}」のセリフが${n}個あります。削除すると、それらのセリフは「人物？」になります。削除しますか？` : `「${c.name}」を削除しますか？`;
   if (!confirm(msg)) return;
   pushUndo();
+  // 本文の名前リンクは、消す人物の名前の文字に戻す
+  const tok = nameToken(c.id);
+  for (const b of S.blocks) for (const f of ['text', 'note', 'memo']) if (b[f] && b[f].includes(tok)) b[f] = b[f].split(tok).join(c.name);
   S.characters = S.characters.filter((x) => x !== c);
   markDirty();
   renderCharacters();
@@ -840,7 +883,7 @@ function renderCheck(run) {
     const who = b?.type === 'dialogue' ? speakerLabel(b, charMap()) : { direction: 'ト書き', situation: 'シチュエーション', chapter: '章' }[b?.type];
     list.append(h('li', { class: 'check-item' },
       h('div', { class: 'msg' }, h('span', { class: `lv lv-${is.level}` }, LV[is.level]), is.message),
-      h('div', { class: 'ctx' }, h('span', { class: 'who' }, `${who}：`), is.context.before, is.end > is.start ? h('mark', {}, is.context.hit) : null, is.context.after),
+      h('div', { class: 'ctx' }, h('span', { class: 'who' }, `${who}：`), shown(is.context.before), is.end > is.start ? h('mark', {}, shown(is.context.hit)) : null, shown(is.context.after)),
       h('div', { class: 'acts' },
         is.suggestion != null ? h('button', { class: 'btn small primary', type: 'button', onclick: () => fixOne(is) }, is.suggestion === '' ? '削除する' : `「${is.suggestion}」に直す`) : null,
         is.rule === 'same-speaker' && charById(is.altCharId) ? h('button', { class: 'btn small primary', type: 'button', onclick: () => setSpeaker(is.blockId, is.altCharId) }, `「${charById(is.altCharId).name}」に変える`) : null,
@@ -876,7 +919,10 @@ function ignoreIssue(is) {
 function jumpTo(is) {
   setView('editor');
   requestAnimationFrame(() => {
-    focusBlock(is.blockId, { select: [is.start, is.end], scroll: false });
+    // 保存上の位置を、名前リンクを《名前》に見せた後の位置に直す
+    const b = S.blocks.find((x) => x.id === is.blockId);
+    const at = (i) => (b ? shown(b.text.slice(0, i)).length : i);
+    focusBlock(is.blockId, { select: [at(is.start), at(is.end)], scroll: false });
     const el = $(`#editor [data-id="${is.blockId}"]`);
     if (!el) return;
     el.scrollIntoView({ block: 'center' });

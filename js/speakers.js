@@ -31,3 +31,32 @@ export const speakerLabel = (b, charMap) => speakersOf(b, charMap).map((s) => s.
 
 // 配役表・配役タブに出す人物か（モブなどは「配役に追加」したときだけ）
 export const inCastList = (c) => c.kind !== 'group' || !!c.inCast;
+
+// 本文中の人物名：《@人物ID》で保存し、表示・印刷のときに今の名前に置き換える。
+// 名前を変えても本文が自動でついてくる
+export const NAME_TOKEN_RE = /《@([A-Za-z0-9_-]+)》/g;
+export const nameToken = (id) => `《@${id}》`;
+
+export function resolveNames(text, charMap) {
+  return (text || '').replace(NAME_TOKEN_RE, (m, id) => (charMap.get(id) ? charMap.get(id).name : '人物？'));
+}
+
+// 書く画面では《名前》と見せる。保存するときは、人物と同じ名前の《》を《@ID》に戻す
+export function tokensToDisplay(text, charMap) {
+  return (text || '').replace(NAME_TOKEN_RE, (m, id) => `《${charMap.get(id) ? charMap.get(id).name : '人物？'}》`);
+}
+
+export function displayToTokens(text, characters) {
+  return (text || '').replace(/《([^《》\n@]+)》/g, (m, name) => {
+    const c = characters.find((x) => x.name === name);
+    return c ? nameToken(c.id) : m;
+  });
+}
+
+// 印刷・書き出し用：本文・メモ・指示の名前リンクを今の名前にした段落
+export function resolveBlock(b, charMap) {
+  const r = { ...b, text: resolveNames(b.text, charMap) };
+  if (b.note) r.note = resolveNames(b.note, charMap);
+  if (b.memo) r.memo = resolveNames(b.memo, charMap);
+  return r;
+}

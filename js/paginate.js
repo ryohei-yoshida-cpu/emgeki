@@ -1,7 +1,7 @@
 // A4 のページに脚本を割り付ける（縦書き・横書き、用紙の縦・横に対応）
 import { h, hasKanji, chapterLabel } from './util.js';
 import { fontCss } from './fonts.js';
-import { speakersOf, speakerIds, inCastList } from './speakers.js';
+import { speakersOf, speakerIds, inCastList, resolveBlock } from './speakers.js';
 
 const PAGE_MM = { portrait: [210, 297], landscape: [297, 210] };
 const MARGIN_MM = { top: 20, bottom: 22, side: 20 };
@@ -196,7 +196,7 @@ export function renderPages(script, host) {
     if (layout.band && block.note && block.note.trim()) placeInBand(anchor, block.note.trim(), layout.band, 'note');
   }
 
-  for (const block of script.blocks) {
+  for (const block of script.blocks.map((b) => resolveBlock(b, chars))) {
     if (block.type === 'chapter') {
       chapterNo++;
       if (st.chapterPageBreak && body && body.children.length) body = null;

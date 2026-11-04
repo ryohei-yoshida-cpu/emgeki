@@ -287,7 +287,13 @@ body.kb-open .insertbar { bottom: var(--kb); }
   font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ins .ins-ico { font-family: var(--editor-font); font-size: 15px; line-height: 1.2; font-weight: 700; }
-.ins-dialogue { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); flex: 1.25; }
+.ins-name { flex: .7; }
+.ins-sit { flex: 1.35; letter-spacing: -.03em; }
+@media (max-width: 380px) {
+  .insertbar { gap: 4px; padding-left: 6px; padding-right: 6px; }
+  .ins { font-size: 10px; }
+}
+.ins-dialogue { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); flex: 1.1; }
 .ins:active { transform: translateY(1px); }
 
 /* ---------- タブバー ---------- */

@@ -2,7 +2,7 @@
 import { chapterLabel, hasKanji } from './util.js';
 import { fontById } from './fonts.js';
 import { pageLayout } from './paginate.js';
-import { speakersOf, speakerLabel, inCastList } from './speakers.js';
+import { speakersOf, speakerLabel, inCastList, resolveBlock } from './speakers.js';
 
 const charMap = (script) => new Map(script.characters.map((c) => [c.id, c]));
 const nameOf = (c) => (c ? c.name : '人物？');
@@ -45,7 +45,7 @@ export function scriptToText(script) {
     if (b.memo && b.memo.trim()) out.push(`${pad}［メモ］${b.memo.trim().split('\n').join(`\n${pad}`)}`);
     if (b.note && b.note.trim()) out.push(`${pad}［指示］${b.note.trim().split('\n').join(`\n${pad}`)}`);
   };
-  for (const b of script.blocks) {
+  for (const b of script.blocks.map((x) => resolveBlock(x, chars))) {
     switch (b.type) {
       case 'dialogue': {
         const name = speakerLabel(b, chars);
@@ -137,7 +137,7 @@ export function scriptToDocx(script) {
 
   let chapterNo = 0;
   let hasContent = false;
-  for (const b of script.blocks) {
+  for (const b of script.blocks.map((x) => resolveBlock(x, chars))) {
     switch (b.type) {
       case 'dialogue': {
         const sps = speakersOf(b, chars);
