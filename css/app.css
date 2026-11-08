@@ -379,6 +379,8 @@ body.kb-open .tabbar { display: none; }
 .sheet-guide { margin: 14px 0 0; font-size: 14px; }
 .sheet-guide a, .empty-hint a { color: var(--accent); font-weight: 700; }
 .sheet-label { font-size: 12px; font-weight: 700; color: var(--muted); margin: 14px 0 0; }
+.chapter-sort .card { padding: 8px 10px; }
+.chapter-sort .meta { white-space: nowrap; }
 .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 6px 0 14px; }
 .pick {
   position: relative;

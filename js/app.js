@@ -95,6 +95,7 @@ const toastError = (msg) => toast(msg, null, { error: true });
 // ============ シート ============
 
 function openSheet(title, ...content) {
+  $('#toast').hidden = true; // 前の通知がシートの中身に重ならないように
   $('#sheet-title').textContent = title;
   const body = $('#sheet-body');
   body.innerHTML = '';
@@ -436,8 +437,11 @@ function openBlockMenu(id) {
     b.type !== 'dialogue' ? item('セリフにする', toType('dialogue')) : null,
     b.type !== 'direction' ? item('ト書きにする', toType('direction')) : null,
     b.type !== 'situation' ? item('シチュエーションにする', toType('situation')) : null,
-    item('上へ移動', () => moveBlock(id, -1)),
-    item('下へ移動', () => moveBlock(id, 1)),
+    b.type === 'chapter' ? item('この章を前へ（章ごと移動）', () => moveChapter(id, -1)) : null,
+    b.type === 'chapter' ? item('この章を後ろへ（章ごと移動）', () => moveChapter(id, 1)) : null,
+    b.type === 'chapter' ? item('章の並べ替え…', openChapterSorter, '', '章の一覧で入れ替え') : null,
+    item(b.type === 'chapter' ? '見出しだけ上へ移動' : '上へ移動', () => moveBlock(id, -1)),
+    item(b.type === 'chapter' ? '見出しだけ下へ移動' : '下へ移動', () => moveBlock(id, 1)),
     item('この上に段落を追加', () => {
       pushUndo();
       const nb = { id: uid(), type: 'direction', text: '' };
@@ -513,6 +517,65 @@ function removeExtra(b, kind) {
   markDirty();
   renderEditor();
   toast(kind === 'note' ? '演技の指示を消しました' : 'メモを消しました', { label: '元に戻す', fn: undo });
+}
+
+// ---- 章ごとの並べ替え ----
+// 章 = 章の見出しから、次の章の見出しの手前まで。最初の章より前の段落（前置き）は動かさない
+function chapterSections() {
+  const starts = S.blocks.map((b, i) => (b.type === 'chapter' ? i : -1)).filter((i) => i >= 0);
+  return {
+    prologue: S.blocks.slice(0, starts[0] ?? S.blocks.length),
+    sections: starts.map((st, k) => S.blocks.slice(st, starts[k + 1] ?? S.blocks.length)),
+  };
+}
+
+function moveChapter(id, delta, { quiet = false } = {}) {
+  const { prologue, sections } = chapterSections();
+  const i = sections.findIndex((sec) => sec[0].id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= sections.length) {
+    if (!quiet) toast(delta < 0 ? 'これ以上前には動かせません' : 'これ以上後ろには動かせません');
+    return false;
+  }
+  pushUndo();
+  [sections[i], sections[j]] = [sections[j], sections[i]];
+  S.blocks = [...prologue, ...sections.flat()];
+  markDirty();
+  renderEditor();
+  if (!quiet) {
+    focusBlock(id, { atEnd: false });
+    toast(`章を${delta < 0 ? '前' : '後ろ'}へ動かしました（番号は自動で振り直されます）`, { label: '元に戻す', fn: undo });
+  }
+  return true;
+}
+
+function openChapterSorter() {
+  const body = h('div');
+  const render = () => {
+    const { sections } = chapterSections();
+    body.innerHTML = '';
+    if (sections.length < 2) {
+      body.append(h('p', { class: 'note' }, sections.length ? '章が1つしかないため、並べ替えはできません。' : 'まだ章がありません。「章立て」ボタンで章を作ってください。'));
+      return;
+    }
+    body.append(h('p', { class: 'note' }, '↑↓で章をまるごと入れ替えます。章の中のセリフ・ト書きも一緒に動き、番号は自動で振り直されます。'));
+    const list = h('ul', { class: 'card-list chapter-sort' });
+    sections.forEach((sec, k) => {
+      const head = sec[0];
+      const lines = sec.filter((b) => b.type === 'dialogue').length;
+      list.append(h('li', { class: 'card' }, h('div', { class: 'card-row' },
+        h('span', { class: 'grow' },
+          h('b', {}, chapterLabel(k + 1, S.settings.chapterFormat)), head.text ? `　${resolveNames(head.text, charMap())}` : '',
+          h('span', { class: 'meta' }, `　セリフ${lines}・段落${sec.length - 1}`)),
+        h('button', { class: 'mini-btn', type: 'button', 'aria-label': '前へ', disabled: k === 0, onclick: () => { moveChapter(head.id, -1, { quiet: true }); render(); } }, '↑'),
+        h('button', { class: 'mini-btn', type: 'button', 'aria-label': '後ろへ', disabled: k === sections.length - 1, onclick: () => { moveChapter(head.id, 1, { quiet: true }); render(); } }, '↓'))));
+    });
+    body.append(list, h('div', { class: 'row-btns' },
+      h('button', { class: 'btn', type: 'button', onclick: () => { undo(); render(); }, disabled: !undoStack.length }, '一つ戻す'),
+      h('button', { class: 'btn primary', type: 'button', onclick: closeSheet }, '完了')));
+  };
+  render();
+  openSheet('章の並べ替え', body);
 }
 
 function changeChar(id) {
@@ -1165,6 +1228,7 @@ async function openScriptList() {
     h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); createScript(); } }, '＋ 新しい脚本'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); duplicateScript(); } }, '複製'),
     h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfImportChooser(); } }, 'PDFから読み込む'),
+    S.blocks.filter((b) => b.type === 'chapter').length >= 2 ? h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); setView('editor'); openChapterSorter(); } }, '章の並べ替え') : null,
     h('button', { class: 'btn danger', type: 'button', onclick: () => { closeSheet(); removeScript(); } }, 'この脚本を削除'));
   const sourceBtn = S.sourcePdfId
     ? h('button', { class: 'btn', type: 'button', onclick: () => { closeSheet(); openPdfViewer(S.sourcePdfId); } }, '元のPDFを見る')
